@@ -1,0 +1,5 @@
+node_modules/
+dist/
+artifacts/
+web/initial-data.json
+.DS_Store

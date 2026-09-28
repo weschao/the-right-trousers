@@ -1,0 +1,1 @@
+import {mkdir,cp,readdir} from 'node:fs/promises';await mkdir('dist',{recursive:true});for(const name of await readdir('web')){if(name==='initial-data.json')continue;await cp('web/'+name,'dist/'+name,{recursive:true});}console.log('Built static app in dist/ (private imported data excluded).');
