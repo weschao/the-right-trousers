@@ -2,6 +2,12 @@
 
 Fieldbook is an offline-first ultimate frisbee scorekeeping app for desktop browsers, iPad, and Android tablets. It records each game as ordered play-by-play events and derives player and team statistics from those events.
 
+During point setup, scorekeepers can create and manage named player groups such as `O-line` or `D-line`, filter the roster to one group, and keep the full selected line visible while choosing the seven players.
+
+Games can use another saved team as the opponent. Each point records up to seven known players for both teams and represents open slots as Unknown. On the field, a destination tap followed by a receiver tap records a catch automatically, or a goal when the destination is in the attacking end zone.
+
+Undo acts immediately. Games can finish during an incomplete point, and completed or in-progress games can be deleted from their game screen. During review, selecting a pass highlights its field segment; holding its receiver name opens a quick receiver correction.
+
 ## Run locally
 
 ```sh
