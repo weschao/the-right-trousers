@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace = "app.fieldbook.ultimate"
+    namespace = "app.therighttrousers.ultimate"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "app.fieldbook.ultimate"
+        applicationId "app.therighttrousers.ultimate"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

@@ -1,4 +1,4 @@
-package app.fieldbook.ultimate;
+package app.therighttrousers.ultimate;
 
 import com.getcapacitor.BridgeActivity;
 

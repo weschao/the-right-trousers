@@ -1,6 +1,6 @@
 export const FIELD = Object.freeze({length:110,width:40,endzone:20,brick:20,unit:'yd'});
 export const uid = () => globalThis.crypto.randomUUID();
-export const emptyData = () => ({format:'fieldbook',version:1,teams:[],games:[],sources:[],settings:{secondaryPreviousShare:.3,secondaryPreviousPreviousShare:.1,includeSecondaryInTotal:false}});
+export const emptyData = () => ({format:'righttrousers',version:1,teams:[],games:[],sources:[],settings:{secondaryPreviousShare:.3,secondaryPreviousPreviousShare:.1,includeSecondaryInTotal:false}});
 export const event = (type,fields={}) => ({id:uid(),type,at:new Date().toISOString(),...fields});
 export const other = side => side === 'us' ? 'them' : 'us';
 export function playersForGroup(team,groupId){
@@ -132,7 +132,7 @@ export function advancedStatsFor(game,team,ose=.56,previousShare=.3,previousPrev
 }
 export function validateData(data){
  const fail=m=>{throw new Error(`Invalid game file: ${m}`);};
- if(data?.format!=='fieldbook'||data.version!==1)fail('expected Fieldbook JSON version 1.');
+ if(data?.format!=='righttrousers'||data.version!==1)fail('expected Right Trousers JSON version 1.');
  if(!Array.isArray(data.teams)||!Array.isArray(data.games))fail('teams and games must be arrays.');
  const ids=new Set(), teamIds=new Set();
  const id=(s,scope)=>{if(typeof s!=='string'||!s||s.length>200)fail('invalid ID');const k=scope+':'+s;if(ids.has(k))fail('duplicate '+scope+' ID');ids.add(k);};

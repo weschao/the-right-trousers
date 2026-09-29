@@ -1,6 +1,6 @@
-# Fieldbook
+# The Right Trousers
 
-Fieldbook is an offline-first ultimate frisbee scorekeeping app for desktop browsers, iPad, and Android tablets. It records each game as ordered play-by-play events and derives player and team statistics from those events.
+The Right Trousers is an offline-first ultimate frisbee scorekeeping app for desktop browsers, iPad, and Android tablets. It records each game as ordered play-by-play events and derives player and team statistics from those events.
 
 During point setup, scorekeepers can create and manage named player groups such as `O-line` or `D-line`, filter the roster to one group, and keep the full selected line visible while choosing the seven players.
 
@@ -34,7 +34,7 @@ Open the native projects with `npx cap open ios` or `npx cap open android`. Buil
 
 ## Data model
 
-`web/core.js` defines the versioned Fieldbook JSON format, validation, game state reducer, and stat calculations. A game contains an ordered `events` array with point starts, possession starts, passes, turnovers, and point results. Field coordinates are stored in yards on a 110 × 40 field, including 20-yard end zones.
+`web/core.js` defines the versioned JSON format, validation, game state reducer, and stat calculations. A game contains an ordered `events` array with point starts, possession starts, passes, turnovers, and point results. Field coordinates are stored in yards on a 110 × 40 field, including 20-yard end zones.
 
 The app also imports `.statto` archives. These are ZIP files containing `data.json`; the importer converts their teams, rosters, games, points, possessions, and passes while retaining the original source records. Historical Statto exports do not include full opponent passing sequences or defender assignments, so defensive yardage is unavailable for those games.
 
