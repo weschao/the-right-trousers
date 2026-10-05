@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';
-import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,advancedStatsFor,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
+import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,advancedStatsFor,matchupBreakdown,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
 const team={id:'t',name:'Team',players:Array.from({length:7},(_,i)=>({id:'p'+i,name:'Player '+i,number:String(i)}))};
 const make=()=>({id:'g',teamId:'t',opponent:'Other',opponents:[],field:FIELD,events:[]});
 const start=(g,starting='O',direction=1)=>g.events.push(event('point_start',{line:team.players.map(p=>p.id),starting,direction}));
@@ -48,3 +48,11 @@ test('EDGE allowed charges the marker with the throw value and the receiver defe
  const rows=Object.fromEntries(advancedStatsFor(g,team).rows.map(r=>[r.id,r]));assert.ok(Math.abs(rows.p0.throwEdgeAllowed-.14)<1e-9);assert.ok(Math.abs(rows.p1.receiveEdgeAllowed-.14)<1e-9);assert.ok(Math.abs(rows.p1.edgeAllowed-.14)<1e-9);assert.equal(rows.p2.edgeAllowed,0);});
 test('turnovers cost oSE and incomplete throws earn no yards',()=>{const g=make();start(g);pickup(g,'us','p0');pass(g,{throwerId:'p0',receiverId:'p1',from:{x:30,y:20},to:{x:60,y:20},outcome:'drop'});pickup(g,'us','p2');pass(g,{throwerId:'p2',receiverId:null,from:{x:30,y:20},to:{x:60,y:20},outcome:'throwaway'});pickup(g,'them',null);pass(g,{side:'them',throwerId:null,receiverId:null,from:{x:60,y:20},to:{x:40,y:20},outcome:'drop',markerId:'p3',receiverDefenderId:'p4'});
  const rows=Object.fromEntries(advancedStatsFor(g,team,.5).rows.map(r=>[r.id,r]));assert.equal(rows.p0.throwingEdge,0);assert.equal(rows.p1.receivingEdge,-.5);assert.equal(rows.p2.throwingEdge,-.5);assert.equal(rows.p3.throwEdgeAllowed,0);assert.equal(rows.p4.receiveEdgeAllowed,-.5);});
+test('matchup breakdown groups offense by defender and defense by the guarded player',()=>{const g=make();start(g);pickup(g,'us','p0');
+ pass(g,{throwerId:'p0',receiverId:'p1',to:{x:35,y:20},opponentMarkerId:'o1',opponentReceiverDefenderId:'o2'});
+ pass(g,{throwerId:'p1',receiverId:'p0',from:{x:35,y:20},to:{x:35,y:30},outcome:'drop',opponentMarkerId:'o2',opponentReceiverDefenderId:'o1'});
+ pickup(g,'them',null);pass(g,{side:'them',throwerId:'o3',receiverId:'o4',from:{x:35,y:30},to:{x:25,y:30},markerId:'p0',receiverDefenderId:'p1'});
+ pass(g,{side:'them',throwerId:'o4',receiverId:'o3',from:{x:25,y:30},to:{x:20,y:30},outcome:'block',markerId:'p2',receiverDefenderId:'p0',blockerId:'p0'});
+ const {offense,defense}=matchupBreakdown(g,'p0','us',.5),byOpponent=rows=>Object.fromEntries(rows.map(row=>[row.opponentId,row]));
+ assert.equal(byOpponent(offense).o1.throws,1);assert.equal(byOpponent(offense).o1.throwGain,10);assert.equal(byOpponent(offense).o1.drops,1);assert.ok(Math.abs(byOpponent(offense).o1.edge-(.07-.5))<1e-9);
+ assert.equal(byOpponent(defense).o3.throwsMarked,1);assert.equal(byOpponent(defense).o3.throwGainAllowed,10);assert.equal(byOpponent(defense).o3.targets,1);assert.equal(byOpponent(defense).o3.blocks,1);assert.equal(byOpponent(offense).o1.points,1);assert.ok(Math.abs(byOpponent(offense).o1.edgePerPoint-(.07-.5))<1e-9);assert.equal(byOpponent(defense).o3.throwaways,0);});

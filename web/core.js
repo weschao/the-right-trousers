@@ -138,17 +138,39 @@ export function teamRates(games,huckYards=35){
  }
  return {offense,holds,cleanHolds,defense,turns,breaks,huckAttempts,huckCompletions};
 }
+// yards only count on a completion; a throwaway, block or stall costs the thrower oSE and a drop costs the receiver oSE
+export function passEdge(e,point,ose){const complete=['complete','goal'].includes(e.outcome),gainValue=complete?passMetrics(e,point).gain*.007+(e.outcome==='goal'?.18:0):0;return {complete,throwValue:gainValue-(['throwaway','block','stall'].includes(e.outcome)?ose:0),receiveValue:gainValue-(e.outcome==='drop'?ose:0)};}
+// one player's passes split by who guarded them (offense) and by whom they guarded (defense); side is the player's team in this game
+export function matchupBreakdown(game,playerId,side,ose){
+ const fieldsFor=offenseSide=>offenseSide==='us'?{marker:'opponentMarkerId',receiverDefender:'opponentReceiverDefenderId'}:{marker:'markerId',receiverDefender:'receiverDefenderId'};
+ const offense=new Map(),defense=new Map();
+ const offenseRow=id=>{const key=id||null;if(!offense.has(key))offense.set(key,{opponentId:key,pointIds:new Set(),throws:0,completions:0,throwGain:0,turnovers:0,assists:0,breaks:0,targets:0,catches:0,drops:0,goals:0,catchGain:0,edge:0});return offense.get(key);};
+ const defenseRow=id=>{const key=id||null;if(!defense.has(key))defense.set(key,{opponentId:key,pointIds:new Set(),throwsMarked:0,completionsAllowed:0,throwGainAllowed:0,throwaways:0,breaksAllowed:0,targets:0,catchesAllowed:0,goalsAllowed:0,catchGainAllowed:0,blocks:0,edgeAllowed:0});return defense.get(key);};
+ for(const point of pointsOf(game))for(const e of point.events){
+  if(e.type!=='pass')continue;
+  const fields=fieldsFor(e.side),marker=e[fields.marker],receiverDefender=e[fields.receiverDefender],{complete,throwValue,receiveValue}=passEdge(e,point,ose),gain=complete?passMetrics(e,point).gain:0,turnover=['throwaway','block','stall'].includes(e.outcome);
+  if(e.side===side){
+   if(e.throwerId===playerId){const row=offenseRow(marker);row.pointIds.add(point.id);row.throws++;if(complete){row.completions++;row.throwGain+=gain;}if(turnover)row.turnovers++;if(e.outcome==='goal')row.assists++;if(e.break)row.breaks++;row.edge+=throwValue;}
+   if(e.receiverId===playerId){const row=offenseRow(receiverDefender);row.pointIds.add(point.id);row.targets++;if(complete){row.catches++;row.catchGain+=gain;}if(e.outcome==='drop')row.drops++;if(e.outcome==='goal')row.goals++;row.edge+=receiveValue;}
+  }else{
+   if(marker===playerId){const row=defenseRow(e.throwerId);row.pointIds.add(point.id);row.throwsMarked++;if(complete){row.completionsAllowed++;row.throwGainAllowed+=gain;}if(turnover)row.throwaways++;if(e.break)row.breaksAllowed++;row.edgeAllowed+=throwValue;}
+   if(receiverDefender===playerId){const row=defenseRow(e.receiverId);row.pointIds.add(point.id);row.targets++;if(complete){row.catchesAllowed++;row.catchGainAllowed+=gain;}if(e.outcome==='goal')row.goalsAllowed++;row.edgeAllowed+=receiveValue;}
+   if(e.outcome==='block'&&e.blockerId===playerId){const row=defenseRow(e.handBlock?e.throwerId:e.receiverId);row.pointIds.add(point.id);row.blocks++;}
+  }
+ }
+ // points matched: the points in which the two players faced each other at least once
+ const finish=(row,edgeKey,perPointKey)=>{const {pointIds,...rest}=row;return {...rest,points:pointIds.size,[perPointKey]:pointIds.size?row[edgeKey]/pointIds.size:0};};
+ return {offense:[...offense.values()].map(row=>finish(row,'edge','edgePerPoint')),defense:[...defense.values()].map(row=>finish(row,'edgeAllowed','edgeAllowedPerPoint'))};
+}
 export function advancedStatsFor(game,team,ose=.56,previousShare=.3,previousPreviousShare=.1,includeSecondaryInTotal=false,huckYards=35){
  const base=statsFor([team],[game],huckYards),rows=new Map(base.map(row=>[row.id,{...row,plusMinus:row.goals+row.assists+row.blocks-row.throwaways-row.drops,throwingEdge:0,receivingEdge:0,secondaryThrowingEdge:0,totalEdge:0,totalEdgePerPoint:0,totalEdgePerTouch:0,throwEdgeAllowed:0,receiveEdgeAllowed:0,edgeAllowed:0}]));
  const pointList=pointsOf(game);
- // yards only count on a completion; a throwaway, block or stall costs the thrower oSE and a drop costs the receiver oSE
- const passEdge=(e,p)=>{const complete=['complete','goal'].includes(e.outcome),gainValue=complete?passMetrics(e,p).gain*.007+(e.outcome==='goal'?.18:0):0;return {complete,throwValue:gainValue-(['throwaway','block','stall'].includes(e.outcome)?ose:0),receiveValue:gainValue-(e.outcome==='drop'?ose:0)};};
  const add=(id,key,value)=>{if(id&&rows.has(id))rows.get(id)[key]+=value;};
  for(const p of pointList){let previous=[];
   for(const e of p.events){
    if(e.type==='possession_start'){if(e.side==='us')previous=[];continue;}
    if(e.type!=='pass')continue;
-   const {complete,throwValue,receiveValue}=passEdge(e,p);
+   const {complete,throwValue,receiveValue}=passEdge(e,p,ose);
    if(e.side!=='us'){add(e.markerId,'throwEdgeAllowed',throwValue);add(e.receiverDefenderId,'receiveEdgeAllowed',receiveValue);continue;}
    add(e.throwerId,'throwingEdge',throwValue);add(e.receiverId,'receivingEdge',receiveValue);
    const value=throwValue+receiveValue;
