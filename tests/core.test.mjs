@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';
-import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
+import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,advancedStatsFor,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
 const team={id:'t',name:'Team',players:Array.from({length:7},(_,i)=>({id:'p'+i,name:'Player '+i,number:String(i)}))};
 const make=()=>({id:'g',teamId:'t',opponent:'Other',opponents:[],field:FIELD,events:[]});
 const start=(g,starting='O',direction=1)=>g.events.push(event('point_start',{line:team.players.map(p=>p.id),starting,direction}));
@@ -41,3 +41,10 @@ test('pull distances run from the pulling goal line and the brick marks an out-o
  const brick=pullMetrics({side:'them',location:{x:FIELD.length-FIELD.endzone-20,y:FIELD.width/2}},{direction:1},FIELD);assert.equal(brick.outOfBounds,true);
  g.events.push(event('point_end',{winner:'us'}));g.events.push(event('point_start',{line:team.players.map(p=>p.id),starting:'D',direction:-1}));g.events.push(event('possession_start',{side:'them',playerId:null,pullerId:'p0',location:{x:FIELD.endzone+20,y:FIELD.width/2}}));
  s=stats(g);assert.equal(s.p0.pulls,2);assert.equal(s.p0.pullsOutOfBounds,1);assert.equal(s.p0.pullVertical,50);});
+test('substitutions do not rewrite the stored starting line',()=>{const g=make();start(g);g.events.push(event('substitution',{side:'us',outId:'p0',inId:'p9'}));const state=gameState(g);assert.ok(state.point.line.includes('p9'));assert.ok(g.events[0].line.includes('p0'));assert.ok(!g.events[0].line.includes('p9'));});
+test('EDGE allowed charges the marker with the throw value and the receiver defender with the catch value',()=>{const g=make();start(g,'D');pickup(g,'them',null);
+ // opponent attacks -x, so moving from x=60 to x=40 gains 20 yd for them
+ pass(g,{side:'them',throwerId:null,receiverId:null,from:{x:60,y:20},to:{x:40,y:20},markerId:'p0',receiverDefenderId:'p1'});
+ const rows=Object.fromEntries(advancedStatsFor(g,team).rows.map(r=>[r.id,r]));assert.ok(Math.abs(rows.p0.throwEdgeAllowed-.14)<1e-9);assert.ok(Math.abs(rows.p1.receiveEdgeAllowed-.14)<1e-9);assert.ok(Math.abs(rows.p1.edgeAllowed-.14)<1e-9);assert.equal(rows.p2.edgeAllowed,0);});
+test('turnovers cost oSE and incomplete throws earn no yards',()=>{const g=make();start(g);pickup(g,'us','p0');pass(g,{throwerId:'p0',receiverId:'p1',from:{x:30,y:20},to:{x:60,y:20},outcome:'drop'});pickup(g,'us','p2');pass(g,{throwerId:'p2',receiverId:null,from:{x:30,y:20},to:{x:60,y:20},outcome:'throwaway'});pickup(g,'them',null);pass(g,{side:'them',throwerId:null,receiverId:null,from:{x:60,y:20},to:{x:40,y:20},outcome:'drop',markerId:'p3',receiverDefenderId:'p4'});
+ const rows=Object.fromEntries(advancedStatsFor(g,team,.5).rows.map(r=>[r.id,r]));assert.equal(rows.p0.throwingEdge,0);assert.equal(rows.p1.receivingEdge,-.5);assert.equal(rows.p2.throwingEdge,-.5);assert.equal(rows.p3.throwEdgeAllowed,0);assert.equal(rows.p4.receiveEdgeAllowed,-.5);});

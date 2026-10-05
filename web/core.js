@@ -15,7 +15,7 @@ export function lineSlots(roster,playerIds=[],limit=7){
 export function pointsOf(game) {
  const points=[]; let point;
  for(const e of game.events){
-  if(e.type==='point_start') {point={opponentLine:[],...e,events:[],winner:null};points.push(point);}
+  if(e.type==='point_start') {point={...e,line:[...e.line],opponentLine:[...(e.opponentLine||[])],events:[],winner:null};points.push(point);}
   else if(point){point.events.push(e);if(e.type==='substitution'){const key=e.side==='us'?'line':'opponentLine',index=point[key].indexOf(e.outId);if(e.inId&&!point[key].includes(e.inId)){if(index>=0)point[key][index]=e.inId;else if(point[key].length<7)point[key].push(e.inId);}}if(e.type==='pass' && e.outcome==='goal')point.winner=e.side; if(e.type==='point_end')point.winner=e.winner; if(e.type==='turnover'&&e.callahan)point.winner=other(e.side);}
  }
  return points;
@@ -139,28 +139,25 @@ export function teamRates(games,huckYards=35){
  return {offense,holds,cleanHolds,defense,turns,breaks,huckAttempts,huckCompletions};
 }
 export function advancedStatsFor(game,team,ose=.56,previousShare=.3,previousPreviousShare=.1,includeSecondaryInTotal=false,huckYards=35){
- const base=statsFor([team],[game],huckYards),rows=new Map(base.map(row=>[row.id,{...row,plusMinus:row.goals+row.assists+row.blocks-row.throwaways-row.drops,throwingEdge:0,receivingEdge:0,secondaryThrowingEdge:0,totalEdge:0,totalEdgePerPoint:0,totalEdgePerTouch:0}]));
- const pointList=pointsOf(game),oppGoals=pointList.filter(p=>p.winner==='them').length;
- let oppPoss=pointList.filter(p=>p.starting==='O').length;
- for(const p of pointList)for(const e of p.events)if(e.side==='us'&&((e.type==='turnover')||(e.type==='pass'&&!['complete','goal'].includes(e.outcome))))oppPoss++;
- const turnoverCost=oppPoss?oppGoals/oppPoss:0;
+ const base=statsFor([team],[game],huckYards),rows=new Map(base.map(row=>[row.id,{...row,plusMinus:row.goals+row.assists+row.blocks-row.throwaways-row.drops,throwingEdge:0,receivingEdge:0,secondaryThrowingEdge:0,totalEdge:0,totalEdgePerPoint:0,totalEdgePerTouch:0,throwEdgeAllowed:0,receiveEdgeAllowed:0,edgeAllowed:0}]));
+ const pointList=pointsOf(game);
+ // yards only count on a completion; a throwaway, block or stall costs the thrower oSE and a drop costs the receiver oSE
+ const passEdge=(e,p)=>{const complete=['complete','goal'].includes(e.outcome),gainValue=complete?passMetrics(e,p).gain*.007+(e.outcome==='goal'?.18:0):0;return {complete,throwValue:gainValue-(['throwaway','block','stall'].includes(e.outcome)?ose:0),receiveValue:gainValue-(e.outcome==='drop'?ose:0)};};
  const add=(id,key,value)=>{if(id&&rows.has(id))rows.get(id)[key]+=value;};
- for(const p of pointList){let previous=[],possessionGoal=false;
+ for(const p of pointList){let previous=[];
   for(const e of p.events){
-   if(e.type==='possession_start'){if(e.side==='us'){previous=[];possessionGoal=false;}continue;}
+   if(e.type==='possession_start'){if(e.side==='us')previous=[];continue;}
    if(e.type!=='pass')continue;
-   if(e.side!=='us'){if(e.outcome==='goal')possessionGoal=true;continue;}
-   const complete=['complete','goal'].includes(e.outcome),m=passMetrics(e,p),gain=m.gain;
-   const throwValue=gain*.007+(e.outcome==='goal'?.18:0)-(['throwaway','block','stall'].includes(e.outcome)?turnoverCost:0);
-   const receiveValue=complete?gain*.007+(e.outcome==='goal'?.18:0)-(e.outcome==='drop'?ose:0):0;
+   const {complete,throwValue,receiveValue}=passEdge(e,p);
+   if(e.side!=='us'){add(e.markerId,'throwEdgeAllowed',throwValue);add(e.receiverDefenderId,'receiveEdgeAllowed',receiveValue);continue;}
    add(e.throwerId,'throwingEdge',throwValue);add(e.receiverId,'receivingEdge',receiveValue);
    const value=throwValue+receiveValue;
    add(previous.at(-1),'secondaryThrowingEdge',value*previousShare);add(previous.at(-2),'secondaryThrowingEdge',value*previousPreviousShare);
    if(complete&&e.throwerId)previous.push(e.throwerId); else previous=[];
   }
  }
- for(const row of rows.values()){row.totalEdge=row.throwingEdge+row.receivingEdge+(includeSecondaryInTotal?row.secondaryThrowingEdge:0);row.totalEdgePerPoint=row.opportunities?row.totalEdge/row.opportunities:0;const touches=row.catches+row.initiated;row.totalEdgePerTouch=touches?row.totalEdge/touches:0;}
- return {rows:[...rows.values()],oppGoals,oppPoss,turnoverCost};
+ for(const row of rows.values()){row.edgeAllowed=row.throwEdgeAllowed+row.receiveEdgeAllowed;row.totalEdge=row.throwingEdge+row.receivingEdge+(includeSecondaryInTotal?row.secondaryThrowingEdge:0);row.totalEdgePerPoint=row.opportunities?row.totalEdge/row.opportunities:0;const touches=row.catches+row.initiated;row.totalEdgePerTouch=touches?row.totalEdge/touches:0;}
+ return {rows:[...rows.values()]};
 }
 export function validateData(data){
  const fail=m=>{throw new Error(`Invalid game file: ${m}`);};

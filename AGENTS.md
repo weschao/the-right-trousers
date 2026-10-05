@@ -12,7 +12,7 @@ Ultimate frisbee stat tracker. Static web app in `web/` (no framework, minified 
 
 ## Data model notes
 
-- Events are ordered in `game.events`; `pointsOf` groups them and mutates lines for substitutions. Point objects share event references with `game.events`.
+- Events are ordered in `game.events`; `pointsOf` groups them and applies substitutions to *copies* of the lines, so `point_start.line` stays the starting line. Before 2026-10-03 it mutated the stored array, so older saved games have post-substitution starting lines. Point `events` arrays share event references with `game.events`.
 - Our-side defender fields are `opponentMarkerId` / `opponentReceiverDefenderId`; opponent-side are `markerId` / `receiverDefenderId`.
 - `game.defenderPairings` is a symmetric one-to-one list of [player, player] pairs; every recorded matchup updates it, so pairings survive turnovers.
 - `force` events carry the defending side; each pass stores the force in effect and a derived `break` flag (`isBreak` in core.js).
