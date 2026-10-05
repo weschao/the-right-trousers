@@ -121,19 +121,19 @@ export function offensiveScoringEfficiency(games,teamId){
 }
 // Season/game-library summary rates. Keeping this event-derived makes the
 // dashboard usable with imported games and future data sources alike.
-// our possessions only; a stall ends a possession but is not a throw. unfinished possessions are ignored.
-export function throwsPerPossession(games){
+// possessions of the given side only; a stall ends a possession but is not a throw. unfinished possessions are ignored.
+export function throwsPerPossession(games,side='us'){
  const result={goal:{possessions:0,throws:0},turnover:{possessions:0,throws:0}};
  for(const game of games)for(const point of pointsOf(game)){
   let current=null;
   const finish=outcome=>{if(current){result[outcome].possessions++;result[outcome].throws+=current.throws;}current=null;};
   for(const e of point.events){
-   if(e.type==='possession_start')current=e.side==='us'?{throws:0}:null;
-   else if(e.type==='pass'&&e.side==='us'){
+   if(e.type==='possession_start')current=e.side===side?{throws:0}:null;
+   else if(e.type==='pass'&&e.side===side){
     if(!current)current={throws:0};
     if(e.outcome!=='stall')current.throws++;
     if(e.outcome==='goal')finish('goal');else if(e.outcome!=='complete')finish('turnover');
-   }else if(e.type==='turnover'&&e.side==='us')finish('turnover');
+   }else if(e.type==='turnover'&&e.side===side)finish('turnover');
   }
  }
  const total={possessions:result.goal.possessions+result.turnover.possessions,throws:result.goal.throws+result.turnover.throws};
