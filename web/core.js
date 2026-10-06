@@ -29,6 +29,12 @@ export function mirrorGame(game){
   if(e.type==='point_end')e.winner=flip(e.winner);
   return e;})};
 }
+// a game against a team in the library also belongs to that team: seen from its side, mirrored so 'us' is that team
+export function opponentPerspective(game,teams){const team=teams.find(t=>t.id===game.teamId);return {...mirrorGame(game),teamId:game.opponentTeamId,opponentTeamId:game.teamId,opponent:team.name,opponents:team.players.map(player=>({...player})),opponentPerspective:true};}
+const hasLinkedOpponent=(game,teams)=>!!game.opponentTeamId&&teams.some(t=>t.id===game.opponentTeamId);
+export function gamesForTeam(data,teamId){return [...data.games.filter(g=>g.teamId===teamId),...data.games.filter(g=>g.opponentTeamId===teamId&&hasLinkedOpponent(g,data.teams)).map(g=>opponentPerspective(g,data.teams))];}
+// every game from every library team's side; a game between two library teams appears twice, once per side
+export function gamesFromEverySide(data){return [...data.games,...data.games.filter(g=>hasLinkedOpponent(g,data.teams)).map(g=>opponentPerspective(g,data.teams))];}
 // stands in for the marker/defender id when the offensive player had nobody guarding them; never a real player
 export const UNGUARDED='unguarded';
 // a matchup deliberately recorded as "I don't know who"; counts as assigned, shows as Unknown, and is stored on passes as null

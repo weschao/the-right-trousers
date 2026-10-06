@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';
-import {pointsOf} from '../web/core.js';import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,advancedStatsFor,UNGUARDED,UNGUARDED_VERSION,UNKNOWN_MATCHUP,applyUnguarded,matchupBreakdown,matchupCoverage,pointMatchups,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
+import {pointsOf} from '../web/core.js';import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,advancedStatsFor,UNGUARDED,UNGUARDED_VERSION,UNKNOWN_MATCHUP,applyUnguarded,matchupBreakdown,matchupCoverage,pointMatchups,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates,gamesForTeam,gamesFromEverySide} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
 const team={id:'t',name:'Team',players:Array.from({length:7},(_,i)=>({id:'p'+i,name:'Player '+i,number:String(i)}))};
 const make=()=>({id:'g',teamId:'t',opponent:'Other',opponents:[],field:FIELD,events:[]});
 const start=(g,starting='O',direction=1)=>g.events.push(event('point_start',{line:team.players.map(p=>p.id),starting,direction}));
@@ -130,3 +130,8 @@ test('unguarded: a game converted under the first version only gains the receive
  const fresh=make();fresh.opponents=g.opponents;start(fresh);pickup(fresh,'us','p0');pass(fresh,{});fresh.unguardedApplied=UNGUARDED_VERSION;
  assert.equal(applyUnguarded(fresh),false);assert.equal(fresh.events.at(-1).opponentMarkerId,undefined);
 });
+test('a game against a library team belongs to both teams and counts once in the all-games list',()=>{const opponentTeam={id:'o',name:'Opp',players:Array.from({length:7},(_,i)=>({id:'q'+i,name:'Opp '+i,number:String(i)}))};const g={...make(),opponentTeamId:'o',opponent:'Opp',opponents:opponentTeam.players};g.events.push(event('point_start',{line:team.players.map(p=>p.id),opponentLine:opponentTeam.players.map(p=>p.id),starting:'D',direction:1}));pickup(g,'them','q0');pass(g,{side:'them',throwerId:'q0',receiverId:'q1',from:{x:80,y:20},to:{x:10,y:20},outcome:'goal'});
+ const data={teams:[team,opponentTeam],games:[g]};
+ assert.equal(gamesForTeam(data,'t').length,1);const [mirrored]=gamesForTeam(data,'o');assert.equal(mirrored.teamId,'o');assert.equal(mirrored.opponentTeamId,'t');assert.equal(mirrored.opponent,'Team');assert.deepEqual(gameState(mirrored).score,[1,0]);
+ const opponentStats=Object.fromEntries(statsFor([opponentTeam],[mirrored]).map(p=>[p.id,p]));assert.equal(opponentStats.q1.goals,1);assert.equal(opponentStats.q0.assists,1);assert.equal(opponentStats.q0.points,1);
+ assert.equal(gamesFromEverySide(data).length,2);assert.equal(gamesForTeam({teams:[team],games:[g]},'o').length,0);});
