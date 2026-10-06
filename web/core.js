@@ -29,6 +29,11 @@ export function mirrorGame(game){
   if(e.type==='point_end')e.winner=flip(e.winner);
   return e;})};
 }
+// stands in for the marker/defender id when the offensive player had nobody guarding them; never a real player
+export const UNGUARDED='unguarded';
+// a matchup deliberately recorded as "I don't know who"; counts as assigned, shows as Unknown, and is stored on passes as null
+export const UNKNOWN_MATCHUP='unknown';
+export const isPlaceholderMatchup=id=>id===UNGUARDED||id===UNKNOWN_MATCHUP;
 export const FORCES=['forehand','backhand','middle'];
 // lateral is measured from the thrower facing the end zone they attack: positive is their right (forehand side)
 export function isBreak(pass,point,field){
@@ -69,7 +74,7 @@ export const STAT_COLUMNS = [
 ];
 export function statsFor(teams,games,huckYards=35){
  const rows=new Map();
- const row=id=>{if(!id)return null;if(!rows.has(id))rows.set(id,{id,name:'Unknown player',number:'',huckAttempts:0,huckCompletions:0,huckCompletionRate:0,pullsInBounds:0,pullVerticalTotal:0,pullHorizontalTotal:0,...Object.fromEntries(STAT_COLUMNS.map(([k])=>[k,0]))});return rows.get(id);};
+ const row=id=>{if(!id||id===UNGUARDED)return null;if(!rows.has(id))rows.set(id,{id,name:'Unknown player',number:'',huckAttempts:0,huckCompletions:0,huckCompletionRate:0,pullsInBounds:0,pullVerticalTotal:0,pullHorizontalTotal:0,...Object.fromEntries(STAT_COLUMNS.map(([k])=>[k,0]))});return rows.get(id);};
  for(const t of teams)for(const p of t.players)Object.assign(row(p.id),{name:p.name,number:p.number,gender:p.gender||''});
  const add=(id,key,value=1)=>{const r=row(id);if(r)r[key]+=value;};
  for(const game of games)for(const p of pointsOf(game)){
@@ -158,6 +163,38 @@ export function teamRates(games,huckYards=35){
 }
 // yards only count on a completion; a throwaway, block or stall costs the thrower oSE and a drop costs the receiver oSE
 export function passEdge(e,point,ose){const complete=['complete','goal'].includes(e.outcome),gainValue=complete?passMetrics(e,point).gain*.007+(e.outcome==='goal'?.18:0):0;return {complete,throwValue:gainValue-(['throwaway','block','stall'].includes(e.outcome)?ose:0),receiveValue:gainValue-(e.outcome==='drop'?ose:0)};}
+// a side is on offense in a point if it started on O or got the disc back, and on defense if it started on D or lost the disc
+export function sideRoles(point,side){
+ const startsOnOffense=(point.starting==='O')===(side==='us'),lostDisc=(e,lostSide)=>e.side===lostSide&&(e.type==='turnover'||(e.type==='pass'&&!['complete','goal'].includes(e.outcome)));
+ return {offense:startsOnOffense||point.events.some(e=>(e.type==='possession_start'&&e.side===side)||lostDisc(e,other(side))),defense:!startsOnOffense||point.events.some(e=>(e.type==='possession_start'&&e.side===other(side))||lostDisc(e,side))};
+}
+// one-to-one [player, opponent] matchups for a point. point_start.matchups is explicit (set by dragging or Edit matchups; [id,null] means deliberately unassigned);
+// markers recorded on possessions and passes fill in anyone the explicit list does not mention
+export function pointMatchups(point){
+ const explicit=point.matchups||[],covered=new Set(explicit.flat().filter(id=>id&&!isPlaceholderMatchup(id))),derived=[];
+ const link=(first,second)=>{if(!first||!second||covered.has(first)||covered.has(second))return;for(let index=derived.length-1;index>=0;index--)if(derived[index].includes(first)||(!isPlaceholderMatchup(second)&&derived[index].includes(second)))derived.splice(index,1);derived.push([first,second]);};
+ for(const e of point.events){
+  if(e.type==='possession_start')link(e.playerId,e.markerId||e.opponentMarkerId);
+  if(e.type==='pass'){link(e.throwerId,e.markerId||e.opponentMarkerId);link(e.receiverId,e.receiverDefenderId||e.opponentReceiverDefenderId);}
+ }
+ return [...explicit.filter(pair=>pair[0]&&pair[1]),...derived];
+}
+// per player: points on offense/defense against how many of those had an assigned matchup (and the 1-based numbers of the points that did not); players of both teams are keyed by their own id
+export function matchupCoverage(game){
+ const rows=new Map(),row=id=>{if(!rows.has(id))rows.set(id,{offensePoints:0,offenseAssigned:0,offenseMissing:[],defensePoints:0,defenseAssigned:0,defenseMissing:[]});return rows.get(id);};
+ for(const [pointIndex,point] of pointsOf(game).entries()){
+  const assigned=new Set(pointMatchups(point).flat());
+  for(const [side,line] of [['us',point.line],['them',point.opponentLine]]){
+   const roles=sideRoles(point,side),substitutions=point.events.filter(e=>e.type==='substitution'&&e.side===side).flatMap(e=>[e.outId,e.inId]);
+   for(const id of new Set([...line,...substitutions].filter(Boolean))){
+    const counts=row(id);
+    if(roles.offense){counts.offensePoints++;if(assigned.has(id))counts.offenseAssigned++;else counts.offenseMissing.push(pointIndex+1);}
+    if(roles.defense){counts.defensePoints++;if(assigned.has(id))counts.defenseAssigned++;else counts.defenseMissing.push(pointIndex+1);}
+   }
+  }
+ }
+ return rows;
+}
 // one player's passes split by who guarded them (offense) and by whom they guarded (defense); side is the player's team in this game
 export function matchupBreakdown(game,playerId,side,ose){
  const fieldsFor=offenseSide=>offenseSide==='us'?{marker:'opponentMarkerId',receiverDefender:'opponentReceiverDefenderId'}:{marker:'markerId',receiverDefender:'receiverDefenderId'};
@@ -176,8 +213,19 @@ export function matchupBreakdown(game,playerId,side,ose){
    if(e.outcome==='block'&&e.blockerId===playerId){const row=defenseRow(e.handBlock?e.throwerId:e.receiverId);row.pointIds.add(point.id);row.blocks++;}
   }
  }
+ // a matchup counts as facing each other on a point even when no pass was recorded, in whichever role their team played that point
+ for(const point of pointsOf(game)){
+  const roles=sideRoles(point,side);
+  for(const pair of pointMatchups(point)){
+   const partner=pair[0]===playerId?pair[1]:pair[1]===playerId?pair[0]:null;
+   if(!partner)continue;
+   const opponentId=partner===UNKNOWN_MATCHUP?null:partner;
+   if(roles.offense)offenseRow(opponentId).pointIds.add(point.id);
+   if(roles.defense&&opponentId!==UNGUARDED)defenseRow(opponentId).pointIds.add(point.id);
+  }
+ }
  // points matched: the points in which the two players faced each other at least once
- const finish=(row,edgeKey,perPointKey)=>{const {pointIds,...rest}=row;return {...rest,points:pointIds.size,[perPointKey]:pointIds.size?row[edgeKey]/pointIds.size:0};};
+ const pointNumberOf=new Map(pointsOf(game).map((point,index)=>[point.id,index+1])),finish=(row,edgeKey,perPointKey)=>{const {pointIds,...rest}=row;return {...rest,points:pointIds.size,pointNumbers:[...pointIds].map(id=>pointNumberOf.get(id)).sort((a,b)=>a-b),[perPointKey]:pointIds.size?row[edgeKey]/pointIds.size:0};};
  return {offense:[...offense.values()].map(row=>finish(row,'edge','edgePerPoint')),defense:[...defense.values()].map(row=>finish(row,'edgeAllowed','edgeAllowedPerPoint'))};
 }
 export function advancedStatsFor(game,team,ose=.56,previousShare=.3,previousPreviousShare=.1,includeSecondaryInTotal=false,huckYards=35){
@@ -212,10 +260,38 @@ export function validateData(data){
  return data;
 }
 // Imports are additive. Existing game IDs are never silently overwritten.
+// older games recorded no defender as unknown; where the defending roster is known:
+// - a first throw of a possession with no marker becomes unguarded
+// - a throw whose marker is unguarded and whose receiver's defender is unknown gets an unguarded receiver's defender
+// - a throw following an unguarded receiver's defender, with no marker, gets an unguarded marker
+// unguardedApplied is the version run (true = 1, before the receiver's-defender rules); a game is upgraded once, so a defender left blank later stays unknown
+export const UNGUARDED_VERSION=2;
+export function applyUnguarded(game){
+ const appliedVersion=game.unguardedApplied===true?1:game.unguardedApplied||0;
+ if(appliedVersion>=UNGUARDED_VERSION)return false;
+ game.unguardedApplied=UNGUARDED_VERSION;
+ if(game.source?.defenseAvailable===false)return false;
+ let changed=false;
+ for(const point of pointsOf(game)){
+  let previous={us:null,them:null};
+  for(const e of point.events){
+   if(e.type==='possession_start'||e.type==='turnover'){previous={us:null,them:null};continue;}
+   if(e.type!=='pass')continue;
+   const markerKey=e.side==='us'?'opponentMarkerId':'markerId',defenderKey=e.side==='us'?'opponentReceiverDefenderId':'receiverDefenderId',defenderRosterKnown=e.side==='us'?game.opponents.length>0:true;
+   if(defenderRosterKnown){
+    const first=!previous[e.side];
+    if(!e[markerKey]&&((first&&appliedVersion===0)||(!first&&previous[e.side][defenderKey]===UNGUARDED))){e[markerKey]=UNGUARDED;changed=true;}
+    if(e.receiverId&&!e[defenderKey]&&e[markerKey]===UNGUARDED){e[defenderKey]=UNGUARDED;changed=true;}
+   }
+   previous=['complete','goal'].includes(e.outcome)?{...previous,[e.side]:e}:{us:null,them:null};
+  }
+ }
+ return changed;
+}
 export function mergeData(current,incoming){
  validateData(incoming);const next=structuredClone(current);let added=0,skipped=0;
  for(const t of incoming.teams){const existing=next.teams.find(x=>x.id===t.id);if(!existing)next.teams.push(t);else{for(const p of t.players)if(!existing.players.some(x=>x.id===p.id))existing.players.push(p);existing.groups??=[];for(const group of t.groups||[])if(!existing.groups.some(x=>x.id===group.id))existing.groups.push(group);}}
- for(const g of incoming.games){if(next.games.some(x=>x.id===g.id))skipped++;else{next.games.push(g);added++;}}
+ for(const g of incoming.games){if(next.games.some(x=>x.id===g.id))skipped++;else{applyUnguarded(g);next.games.push(g);added++;}}
  for(const source of incoming.sources||[])if(!next.sources.some(s=>s.id===source.id))next.sources.push(source);
  return {data:next,added,skipped};
 }

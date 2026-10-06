@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';
-import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,advancedStatsFor,matchupBreakdown,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
+import {pointsOf} from '../web/core.js';import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,advancedStatsFor,UNGUARDED,UNGUARDED_VERSION,UNKNOWN_MATCHUP,applyUnguarded,matchupBreakdown,matchupCoverage,pointMatchups,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
 const team={id:'t',name:'Team',players:Array.from({length:7},(_,i)=>({id:'p'+i,name:'Player '+i,number:String(i)}))};
 const make=()=>({id:'g',teamId:'t',opponent:'Other',opponents:[],field:FIELD,events:[]});
 const start=(g,starting='O',direction=1)=>g.events.push(event('point_start',{line:team.players.map(p=>p.id),starting,direction}));
@@ -56,3 +56,77 @@ test('matchup breakdown groups offense by defender and defense by the guarded pl
  const {offense,defense}=matchupBreakdown(g,'p0','us',.5),byOpponent=rows=>Object.fromEntries(rows.map(row=>[row.opponentId,row]));
  assert.equal(byOpponent(offense).o1.throws,1);assert.equal(byOpponent(offense).o1.throwGain,10);assert.equal(byOpponent(offense).o1.drops,1);assert.ok(Math.abs(byOpponent(offense).o1.edge-(.07-.5))<1e-9);
  assert.equal(byOpponent(defense).o3.throwsMarked,1);assert.equal(byOpponent(defense).o3.throwGainAllowed,10);assert.equal(byOpponent(defense).o3.targets,1);assert.equal(byOpponent(defense).o3.blocks,1);assert.equal(byOpponent(offense).o1.points,1);assert.ok(Math.abs(byOpponent(offense).o1.edgePerPoint-(.07-.5))<1e-9);assert.equal(byOpponent(defense).o3.throwaways,0);});
+
+test('matchups: coverage counts O and D points against assigned ones, and an assignment with no passes still shows in the breakdown',()=>{
+ const g=make();g.opponents=[{id:'opp0',name:'Opp 0',number:'0'},{id:'opp1',name:'Opp 1',number:'1'}];
+ // point 1: start O, we hold, p0 matched with opp0 but no passes recorded
+ g.events.push(event('point_start',{line:['p0','p1'],opponentLine:['opp0','opp1'],starting:'O',direction:1,matchups:[['p0','opp0']]}));pickup(g,'us','p0');pass(g,{outcome:'goal'});
+ // point 2: start D, they turn it over to us (O for us), p1 marked by opp1 only through a recorded marker
+ g.events.push(event('point_start',{line:['p0','p1'],opponentLine:['opp0','opp1'],starting:'D',direction:-1}));pickup(g,'them','opp0');pass(g,{side:'them',throwerId:'opp0',receiverId:'opp1',outcome:'throwaway',markerId:'p1'});
+ const coverage=new Map([...matchupCoverage(g)].map(([id,{offenseMissing,defenseMissing,...counts}])=>[id,counts]));
+ assert.deepEqual(coverage.get('p0'),{offensePoints:2,offenseAssigned:1,defensePoints:1,defenseAssigned:0});
+ assert.deepEqual(coverage.get('p1'),{offensePoints:2,offenseAssigned:1,defensePoints:1,defenseAssigned:1});
+ assert.deepEqual(coverage.get('opp0'),{offensePoints:1,offenseAssigned:1,defensePoints:2,defenseAssigned:2});assert.deepEqual(coverage.get('opp1'),{offensePoints:1,offenseAssigned:0,defensePoints:2,defenseAssigned:0});
+ assert.deepEqual(matchupCoverage(g).get('p0').offenseMissing,[2]);assert.deepEqual(matchupCoverage(g).get('p0').defenseMissing,[2]);
+ const {offense,defense}=matchupBreakdown(g,'p0','us',.56);
+ assert.equal(offense.find(row=>row.opponentId==='opp0').points,1);assert.equal(offense.find(row=>row.opponentId==='opp0').throws,0);
+ assert.equal(defense.find(row=>row.opponentId==='opp0'),undefined);assert.equal(matchupBreakdown(g,'p1','us',.56).defense.find(row=>row.opponentId==='opp0').points,1);
+ const mirrored=matchupBreakdown(mirrorGame(g),'opp0','us',.56);assert.equal(mirrored.defense.find(row=>row.opponentId==='p0').points,1);
+});
+test('matchups: explicit list wins, [id,null] suppresses a recorded marker',()=>{
+ const g=make();g.opponents=[{id:'opp0',name:'Opp 0',number:'0'},{id:'opp1',name:'Opp 1',number:'1'}];
+ g.events.push(event('point_start',{line:['p0','p1'],opponentLine:['opp0','opp1'],starting:'O',direction:1,matchups:[['p0','opp1'],['p1',null]]}));pickup(g,'us','p0');g.events.at(-1).opponentMarkerId='opp0';pass(g,{receiverId:'p1',opponentReceiverDefenderId:'opp1'});
+ assert.deepEqual(pointMatchups(pointsOf(g)[0]),[['p0','opp1']]);
+});
+
+const fixture=async()=>JSON.parse(await readFile(new URL('./fixtures/polar-bears-2026-10-06.json',import.meta.url)));
+test('unguarded: unmarked first throws and the throws that follow an unguarded marker are attributed to unguarded, once',async()=>{
+ const g=make();g.opponents=[{id:'opp0',name:'Opp 0',number:'0'}];
+ start(g);pickup(g,'us','p0');pass(g,{});pass(g,{throwerId:'p1',receiverId:'p2'});pass(g,{throwerId:'p2',receiverId:'p3',opponentMarkerId:'opp0'});pass(g,{throwerId:'p3',receiverId:'p4'});
+ assert.equal(applyUnguarded(g),true);
+ const markers=g.events.filter(e=>e.type==='pass').map(e=>e.opponentMarkerId);
+ assert.deepEqual(markers,[UNGUARDED,UNGUARDED,'opp0',undefined]);
+ assert.deepEqual(g.events.filter(e=>e.type==='pass').map(e=>e.opponentReceiverDefenderId),[UNGUARDED,UNGUARDED,undefined,undefined]);
+ assert.equal(applyUnguarded(g),false);
+ assert.equal(statsFor([team],[g]).some(row=>row.id===UNGUARDED),false);
+ const {offense}=matchupBreakdown(g,'p0','us',.56);assert.equal(offense.find(row=>row.opponentId===UNGUARDED).throws,1);
+});
+test('unguarded: games without a known defending roster are left alone',()=>{
+ const g=make();start(g);pickup(g,'us','p0');pass(g,{});
+ applyUnguarded(g);assert.equal(g.events.at(-1).opponentMarkerId,undefined);
+});
+test('fixture game (Polar Bears) migrates and stays consistent',async()=>{
+ const data=await fixture();validateData(data);const game=data.games[0];
+ const unmarked=side=>game.events.filter(e=>e.type==='pass'&&e.side===side&&!(e.markerId||e.opponentMarkerId)).length;
+ const before={us:unmarked('us'),them:unmarked('them')};
+ assert.ok(before.us>0&&before.them>0);
+ assert.equal(applyUnguarded(game),true);
+ const after={us:unmarked('us'),them:unmarked('them')};
+ assert.ok(after.us<before.us&&after.them<before.them);
+ const unguarded=game.events.filter(e=>e.type==='pass'&&(e.markerId===UNGUARDED||e.opponentMarkerId===UNGUARDED));
+ assert.equal(unguarded.length,before.us+before.them-after.us-after.them);
+ assert.equal(statsFor(data.teams,[game]).some(row=>row.id===UNGUARDED),false);
+ for(const row of matchupCoverage(game).values())assert.ok(row.offenseAssigned<=row.offensePoints&&row.defenseAssigned<=row.defensePoints);
+});
+
+test('unknown matchup: counts as assigned, lands in the Unknown row with its point numbers, and beats a recorded marker',()=>{
+ const g=make();g.opponents=[{id:'opp0',name:'Opp 0',number:'0'}];
+ start(g);pickup(g,'us','p0');g.events.at(-1).opponentMarkerId='opp0';pass(g,{outcome:'goal',opponentMarkerId:'opp0'});
+ g.events.push(event('point_start',{line:['p0'],opponentLine:['opp0'],starting:'O',direction:1,matchups:[['p0',UNKNOWN_MATCHUP]]}));pickup(g,'us','p0');pass(g,{outcome:'goal'});
+ assert.deepEqual(pointMatchups(pointsOf(g)[1]),[['p0',UNKNOWN_MATCHUP]]);
+ assert.deepEqual(matchupCoverage(g).get('p0').offenseMissing,[]);
+ const unknown=matchupBreakdown(g,'p0','us',.56).offense.find(row=>row.opponentId===null);
+ assert.deepEqual(unknown.pointNumbers,[2]);
+});
+
+test('unguarded: a game converted under the first version only gains the receiver-defender propagation',()=>{
+ const g=make();g.opponents=[{id:'opp0',name:'Opp 0',number:'0'}];g.unguardedApplied=true;
+ start(g);pickup(g,'us','p0');pass(g,{opponentMarkerId:UNGUARDED});pass(g,{throwerId:'p1',receiverId:'p2'});pass(g,{throwerId:'p2',receiverId:'p3',opponentMarkerId:'opp0'});
+ assert.equal(applyUnguarded(g),true);
+ const passes=g.events.filter(e=>e.type==='pass');
+ assert.deepEqual(passes.map(e=>e.opponentMarkerId),[UNGUARDED,UNGUARDED,'opp0']);
+ assert.deepEqual(passes.map(e=>e.opponentReceiverDefenderId),[UNGUARDED,UNGUARDED,undefined]);
+ assert.equal(g.unguardedApplied,UNGUARDED_VERSION);
+ const fresh=make();fresh.opponents=g.opponents;start(fresh);pickup(fresh,'us','p0');pass(fresh,{});fresh.unguardedApplied=UNGUARDED_VERSION;
+ assert.equal(applyUnguarded(fresh),false);assert.equal(fresh.events.at(-1).opponentMarkerId,undefined);
+});

@@ -52,3 +52,12 @@
 [data-breakdown]{cursor:pointer}[data-breakdown]:hover{text-decoration:underline}.breakdown-table{max-height:none}.breakdown-table .stats-table th{text-align:right}.breakdown-table .stats-table td:first-child,.breakdown-table .stats-table th:first-child{min-width:130px}
 #modal:has(.breakdown-table){max-width:980px}.breakdown-table .stats-table th{white-space:normal;min-width:64px;line-height:1.3;vertical-align:bottom}
 .summary-row{cursor:pointer}.summary-row:hover{background:#f1f4e8}.summary-row.expanded{background:#f1f4e8;font-weight:600}.summary-row.expanded+.feed-row,.summary-row.expanded~.feed-row:not(.summary-row){padding-left:18px}
+.stats-table td.stat-name.matchup-gap{position:relative;background:#ffe08a!important;box-shadow:none}
+.stat-name.matchup-gap::after{content:attr(data-matchup-gap);position:absolute;z-index:4;left:4px;bottom:calc(100% + 5px);width:max-content;max-width:240px;padding:6px 8px;border-radius:4px;background:#183c30;color:#fffef9;font-size:10px;font-weight:500;line-height:1.3;white-space:pre-line;opacity:0;pointer-events:none;transform:translateY(2px);transition:opacity .08s,transform .08s}
+.stat-name.matchup-gap:hover::after{opacity:1;transform:translateY(0)}
+.quick-player.unguarded{border-style:dashed}
+.quick-player.unknown{border-style:dotted}
+.stats-table td.stat-name.unknown-matchup{background:#cfe3ff!important}
+.stats-table td.stat-name.matchup-gap.unknown-matchup{background:linear-gradient(90deg,#ffe08a 50%,#cfe3ff 50%)!important}
+.unknown-points{display:block;font-weight:400;color:var(--muted)}
+.stats-team-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
