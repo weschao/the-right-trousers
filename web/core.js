@@ -42,7 +42,9 @@ export const UNKNOWN_MATCHUP='unknown';
 export const isPlaceholderMatchup=id=>id===UNGUARDED||id===UNKNOWN_MATCHUP;
 export const FORCES=['forehand','backhand','middle'];
 // lateral is measured from the thrower facing the end zone they attack: positive is their right (forehand side)
+// nobody marking the thrower means there was no force to break
 export function isBreak(pass,point,field){
+ if(pass[pass.side==='us'?'opponentMarkerId':'markerId']===UNGUARDED)return false;
  if(!pass.force||!pass.from||!pass.to||passMetrics(pass,point).gain<0)return false;
  const sideways=pass.to.y-pass.from.y,attack=(point.direction||1)*(pass.side==='them'?-1:1),toThrowerRight=sideways*attack;
  if(pass.force==='forehand')return toThrowerRight<-5;
@@ -274,10 +276,10 @@ export function validateData(data){
 export const UNGUARDED_VERSION=2;
 export function applyUnguarded(game){
  const appliedVersion=game.unguardedApplied===true?1:game.unguardedApplied||0;
- if(appliedVersion>=UNGUARDED_VERSION)return false;
+ let changed=clearUnguardedBreaks(game);
+ if(appliedVersion>=UNGUARDED_VERSION)return changed;
  game.unguardedApplied=UNGUARDED_VERSION;
- if(game.source?.defenseAvailable===false)return false;
- let changed=false;
+ if(game.source?.defenseAvailable===false)return changed;
  for(const point of pointsOf(game)){
   let previous={us:null,them:null};
   for(const e of point.events){
@@ -288,10 +290,17 @@ export function applyUnguarded(game){
     const first=!previous[e.side];
     if(!e[markerKey]&&((first&&appliedVersion===0)||(!first&&previous[e.side][defenderKey]===UNGUARDED))){e[markerKey]=UNGUARDED;changed=true;}
     if(e.receiverId&&!e[defenderKey]&&e[markerKey]===UNGUARDED){e[defenderKey]=UNGUARDED;changed=true;}
+    if(e.break&&e[markerKey]===UNGUARDED){e.break=false;changed=true;}
    }
    previous=['complete','goal'].includes(e.outcome)?{...previous,[e.side]:e}:{us:null,them:null};
   }
  }
+ return changed;
+}
+// passes saved before unguarded markers ruled out breaks can still carry break:true
+function clearUnguardedBreaks(game){
+ let changed=false;
+ for(const e of game.events)if(e.type==='pass'&&e.break&&e[e.side==='us'?'opponentMarkerId':'markerId']===UNGUARDED){e.break=false;changed=true;}
  return changed;
 }
 export function mergeData(current,incoming){

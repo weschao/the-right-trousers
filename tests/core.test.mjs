@@ -135,3 +135,8 @@ test('a game against a library team belongs to both teams and counts once in the
  assert.equal(gamesForTeam(data,'t').length,1);const [mirrored]=gamesForTeam(data,'o');assert.equal(mirrored.teamId,'o');assert.equal(mirrored.opponentTeamId,'t');assert.equal(mirrored.opponent,'Team');assert.deepEqual(gameState(mirrored).score,[1,0]);
  const opponentStats=Object.fromEntries(statsFor([opponentTeam],[mirrored]).map(p=>[p.id,p]));assert.equal(opponentStats.q1.goals,1);assert.equal(opponentStats.q0.assists,1);assert.equal(opponentStats.q0.points,1);
  assert.equal(gamesFromEverySide(data).length,2);assert.equal(gamesForTeam({teams:[team],games:[g]},'o').length,0);});
+test('a throw with an unguarded marker is never a break, and saved break flags on such throws are cleared',()=>{const point={direction:1},throwPass=(side,marker)=>({side,force:'forehand',from:{x:50,y:20},to:{x:60,y:5},[side==='us'?'opponentMarkerId':'markerId']:marker});
+ assert.equal(isBreak(throwPass('us','o1'),point,FIELD),true);assert.equal(isBreak(throwPass('us',UNGUARDED),point,FIELD),false);assert.equal(isBreak(throwPass('them',UNGUARDED),{direction:-1},FIELD),false);
+ const g=make();g.unguardedApplied=UNGUARDED_VERSION;start(g);pickup(g,'us','p0');pass(g,{force:'forehand',break:true,opponentMarkerId:UNGUARDED});pass(g,{throwerId:'p1',receiverId:'p2',force:'forehand',break:true,opponentMarkerId:'o1'});
+ assert.equal(applyUnguarded(g),true);const passes=g.events.filter(e=>e.type==='pass');assert.equal(passes[0].break,false);assert.equal(passes[1].break,true);assert.equal(applyUnguarded(g),false);
+ assert.equal(stats(g).p0.breaks,0);assert.equal(stats(g).p1.breaks,1);});
