@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';
-import {pointsOf} from '../web/core.js';import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,advancedStatsFor,UNGUARDED,UNGUARDED_VERSION,UNKNOWN_MATCHUP,applyUnguarded,matchupBreakdown,matchupCoverage,pointMatchups,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates,gamesForTeam,gamesFromEverySide} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
+import {pointsOf} from '../web/core.js';import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,advancedStatsFor,UNGUARDED,UNGUARDED_VERSION,UNKNOWN_MATCHUP,applyUnguarded,recomputeBreaks,matchupBreakdown,matchupCoverage,pointMatchups,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates,gamesForTeam,gamesFromEverySide,throwsPerPossession} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
 const team={id:'t',name:'Team',players:Array.from({length:7},(_,i)=>({id:'p'+i,name:'Player '+i,number:String(i)}))};
 const make=()=>({id:'g',teamId:'t',opponent:'Other',opponents:[],field:FIELD,events:[]});
 const start=(g,starting='O',direction=1)=>g.events.push(event('point_start',{line:team.players.map(p=>p.id),starting,direction}));
@@ -27,13 +27,14 @@ test('our offense tracks the opponent defender chain after a turnover',()=>{cons
 test('mirrored game gives the opponent a first-person view',()=>{const g=make();g.opponents=[{id:'opp0',name:'Opp 0',number:'0'}];g.events.push(event('point_start',{line:['p0'],opponentLine:['opp0'],starting:'D',direction:1}));g.events.push(event('possession_start',{side:'them',playerId:'opp0',location:{x:25,y:20}}));g.events.push(event('pass',{side:'them',throwerId:'opp0',receiverId:null,from:{x:25,y:20},to:{x:25,y:20},outcome:'throwaway',markerId:'p0',receiverDefenderId:null}));const opponentTeam={id:'o',name:'Other',players:g.opponents},rows=Object.fromEntries(statsFor([opponentTeam],[mirrorGame(g)]).map(r=>[r.id,r]));assert.equal(rows.opp0.oPoints,1);assert.equal(rows.opp0.initiated,1);assert.equal(rows.opp0.throwaways,1);assert.equal(statsFor([team],[mirrorGame(g)]).find(r=>r.id==='p0').dPoints,0);});
 test('break detection follows the force from the thrower facing their attacking end zone',()=>{const point={direction:1},throwTo=(side,force,dx,dy,fromY=20)=>isBreak({side,force,from:{x:50,y:fromY},to:{x:50+dx,y:fromY+dy}},point,FIELD);
  // attacking +x on screen, the thrower's right (forehand side) is +y
- assert.equal(throwTo('us','forehand',5,-6),true);assert.equal(throwTo('us','forehand',5,6),false);assert.equal(throwTo('us','forehand',5,-4),false);assert.equal(throwTo('us','forehand',-1,-10),false);assert.equal(throwTo('us','forehand',0,-10),true);
+ assert.equal(throwTo('us','forehand',5,-6),true);assert.equal(throwTo('us','forehand',5,6),false);assert.equal(throwTo('us','forehand',5,-0.5),false);assert.equal(throwTo('us','forehand',-1,-10),false);assert.equal(throwTo('us','forehand',0,-10),true);
  assert.equal(throwTo('us','backhand',5,6),true);assert.equal(throwTo('us','backhand',5,-6),false);
  // opponent attacks -x, so their right is -y
  assert.equal(throwTo('them','forehand',-5,6),true);assert.equal(throwTo('them','forehand',-5,-6),false);
  // middle: thrower near y=5 is forced toward +y, so breaking goes toward the near sideline
- assert.equal(throwTo('us','middle',5,-4.5,5),false);assert.equal(throwTo('us','middle',5,-5.5,10),true);assert.equal(throwTo('us','middle',5,10,10),false);assert.equal(throwTo('us','middle',5,-6,30),false);assert.equal(throwTo('us','middle',5,6,30),true);
+ assert.equal(throwTo('us','middle',5,-0.5,5),false);assert.equal(throwTo('us','middle',5,-1.5,10),true);assert.equal(throwTo('us','middle',5,10,10),false);assert.equal(throwTo('us','middle',5,-6,30),false);assert.equal(throwTo('us','middle',5,6,30),true);
  assert.equal(isBreak({side:'us',force:null,from:{x:50,y:20},to:{x:60,y:5}},point,FIELD),false);});
+test('recomputeBreaks rewrites saved flags from the current definition',()=>{const g=make();g.field=FIELD;start(g);pickup(g,'us','p0');pass(g,{force:'forehand',break:false,from:{x:50,y:20},to:{x:55,y:18},opponentMarkerId:'o1'});pass(g,{force:'forehand',break:true,from:{x:55,y:18},to:{x:60,y:18.5},opponentMarkerId:'o1'});assert.equal(recomputeBreaks(g),true);const flags=g.events.filter(e=>e.type==='pass').map(e=>e.break);assert.deepEqual(flags,[true,false]);assert.equal(recomputeBreaks(g),false);});
 test('breaks credit the thrower and charge the marker',()=>{const g=make();start(g);pickup(g,'us','p0');pass(g,{force:'forehand',break:true});pickup(g,'them',null);pass(g,{side:'them',throwerId:null,receiverId:null,markerId:'p3',force:'backhand',break:true});const s=stats(g);assert.equal(s.p0.breaks,1);assert.equal(s.p3.breaksAllowed,1);assert.equal(s.p1.breaks,0);});
 test('pull distances run from the pulling goal line and the brick marks an out-of-bounds pull',()=>{const g=make();g.events.push(event('point_start',{line:team.players.map(p=>p.id),starting:'D',direction:1}));g.events.push(event('possession_start',{side:'them',playerId:null,pullerId:'p0',location:{x:70,y:30}}));
  // we pull attacking +x from x=20, so a pickup at x=70 is 50 yd deep and 10 yd off centre
@@ -135,6 +136,20 @@ test('a game against a library team belongs to both teams and counts once in the
  assert.equal(gamesForTeam(data,'t').length,1);const [mirrored]=gamesForTeam(data,'o');assert.equal(mirrored.teamId,'o');assert.equal(mirrored.opponentTeamId,'t');assert.equal(mirrored.opponent,'Team');assert.deepEqual(gameState(mirrored).score,[1,0]);
  const opponentStats=Object.fromEntries(statsFor([opponentTeam],[mirrored]).map(p=>[p.id,p]));assert.equal(opponentStats.q1.goals,1);assert.equal(opponentStats.q0.assists,1);assert.equal(opponentStats.q0.points,1);
  assert.equal(gamesFromEverySide(data).length,2);assert.equal(gamesForTeam({teams:[team],games:[g]},'o').length,0);});
+
+test('an unattributed goal ends the point and removes it from throws per possession and EDGE',()=>{
+ const build=withExcluded=>{const g=make();start(g);pickup(g,'us','p0');pass(g,{});pass(g,{throwerId:'p1',receiverId:'p2',outcome:'goal'});
+  if(withExcluded){start(g);pickup(g,'us','p0');pass(g,{});pass(g,{throwerId:'p1',receiverId:'p2',outcome:'throwaway'});g.events.push(event('unattributed_goal',{side:'them',location:null}));}return g;};
+ const base=build(false),extra=build(true),points=pointsOf(extra);
+ assert.equal(points.at(-1).winner,'them');assert.equal(gameState(extra).active,false);
+ assert.deepEqual(throwsPerPossession([extra]),throwsPerPossession([base]));
+ const rowsOf=g=>Object.fromEntries(advancedStatsFor(g,team).rows.map(r=>[r.id,r]));
+ for(const id of ['p0','p1','p2']){assert.equal(rowsOf(extra)[id].totalEdge,rowsOf(base)[id].totalEdge);assert.equal(rowsOf(extra)[id].opportunities,rowsOf(base)[id].opportunities);}
+ const edgeOf=g=>matchupBreakdown(g,'p1','us',.56).offense.reduce((total,row)=>total+row.edge,0);
+ assert.equal(edgeOf(extra),edgeOf(base));
+ validateData({...emptyData(),teams:[team],games:[extra]});
+});
+
 test('a throw with an unguarded marker is never a break, and saved break flags on such throws are cleared',()=>{const point={direction:1},throwPass=(side,marker)=>({side,force:'forehand',from:{x:50,y:20},to:{x:60,y:5},[side==='us'?'opponentMarkerId':'markerId']:marker});
  assert.equal(isBreak(throwPass('us','o1'),point,FIELD),true);assert.equal(isBreak(throwPass('us',UNGUARDED),point,FIELD),false);assert.equal(isBreak(throwPass('them',UNGUARDED),{direction:-1},FIELD),false);
  const g=make();g.unguardedApplied=UNGUARDED_VERSION;start(g);pickup(g,'us','p0');pass(g,{force:'forehand',break:true,opponentMarkerId:UNGUARDED});pass(g,{throwerId:'p1',receiverId:'p2',force:'forehand',break:true,opponentMarkerId:'o1'});
