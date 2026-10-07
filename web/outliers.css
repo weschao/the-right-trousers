@@ -61,5 +61,3 @@
 .stats-table td.stat-name.matchup-gap.unknown-matchup{background:linear-gradient(90deg,#ffe08a 50%,#cfe3ff 50%)!important}
 .unknown-points{display:block;font-weight:400;color:var(--muted)}
 .stats-team-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-
-.stats-table td.rate-worse{color:#b3261e;font-weight:600}.stats-table td.rate-better{color:#1b7a3e;font-weight:600}

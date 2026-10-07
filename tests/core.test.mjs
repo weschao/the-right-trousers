@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';
-import {pointsOf,groupOnOffStats} from '../web/core.js';import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,advancedStatsFor,UNGUARDED,UNGUARDED_VERSION,UNKNOWN_MATCHUP,applyUnguarded,recomputeBreaks,matchupBreakdown,matchupCoverage,pointMatchups,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates,gamesForTeam,gamesFromEverySide,throwsPerPossession} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
+import {pointsOf} from '../web/core.js';import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,advancedStatsFor,UNGUARDED,UNGUARDED_VERSION,UNKNOWN_MATCHUP,applyUnguarded,recomputeBreaks,matchupBreakdown,matchupCoverage,pointMatchups,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates,gamesForTeam,gamesFromEverySide,throwsPerPossession} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
 const team={id:'t',name:'Team',players:Array.from({length:7},(_,i)=>({id:'p'+i,name:'Player '+i,number:String(i)}))};
 const make=()=>({id:'g',teamId:'t',opponent:'Other',opponents:[],field:FIELD,events:[]});
 const start=(g,starting='O',direction=1)=>g.events.push(event('point_start',{line:team.players.map(p=>p.id),starting,direction}));
@@ -155,39 +155,3 @@ test('a throw with an unguarded marker is never a break, and saved break flags o
  const g=make();g.unguardedApplied=UNGUARDED_VERSION;start(g);pickup(g,'us','p0');pass(g,{force:'forehand',break:true,opponentMarkerId:UNGUARDED});pass(g,{throwerId:'p1',receiverId:'p2',force:'forehand',break:true,opponentMarkerId:'o1'});
  assert.equal(applyUnguarded(g),true);const passes=g.events.filter(e=>e.type==='pass');assert.equal(passes[0].break,false);assert.equal(passes[1].break,true);assert.equal(applyUnguarded(g),false);
  assert.equal(stats(g).p0.breaks,0);assert.equal(stats(g).p1.breaks,1);});
-test('group on/off hold rates need at least five group members on the field',()=>{
- const g=make(),line=ids=>g.events.push(event('point_start',{line:ids,starting:'O',direction:1})),end=winner=>g.events.push(event('point_end',{winner})),startD=ids=>g.events.push(event('point_start',{line:ids,starting:'D',direction:1}));
- const group={id:'grp',name:'Core',playerIds:['p0','p1','p2','p3','p4','p5']};
- line(['p0','p1','p2','p3','p4','p5','p6']);end('us');
- startD(['p0','p1','p2','p3','p4','p5','p6']);end('them');
- line(['p1','p2','p3','p4','p5','p6','x']);end('us');
- startD(['p1','p2','p3','p4','p5','p6','x']);end('us');
- line(['p0','p1','p2','p6','x','y','z']);end('us');
- const [result]=groupOnOffStats([g],{...team,groups:[group]},'p0').groups;
- assert.deepEqual(result.on,{points:2,oPoints:1,holds:1,dPoints:1,opponentHolds:1});
- assert.deepEqual(result.off,{points:2,oPoints:1,holds:1,dPoints:1,opponentHolds:0});
- assert.deepEqual(groupOnOffStats([g],{...team,groups:[group]},'p6').groups,[]);
-});
-test('a point ended by an unattributed goal still counts toward opp scored % and group hold rates',()=>{
- const g=make();start(g,'D');g.events.push(event('unattributed_goal',{side:'them',location:null}));
- const row=advancedStatsFor(g,team).rows.find(r=>r.id==='p0');
- assert.equal(row.defenseOpportunities,1);assert.equal(row.opponentScoredRateFromD,1);
- const [result]=groupOnOffStats([g],{...team,groups:[{id:'x',name:'All',playerIds:team.players.map(p=>p.id)}]},'p0').groups;
- assert.deepEqual(result.on,{points:1,oPoints:0,holds:0,dPoints:1,opponentHolds:1});
-});
-test('group total counts a point once even when it qualifies for several groups',()=>{
- const g=make();start(g,'O');g.events.push(event('point_end',{winner:'us'}));
- const ids=team.players.map(p=>p.id),groups=[{id:'a',name:'A',playerIds:ids.slice(0,6)},{id:'b',name:'B',playerIds:ids.slice(1,7).concat('p0')}];
- const {groups:rows,total}=groupOnOffStats([g],{...team,groups},'p0');
- assert.equal(rows.length,2);assert.equal(rows[0].on.points,1);assert.equal(rows[1].on.points,1);
- assert.deepEqual(total.on,{points:1,oPoints:1,holds:1,dPoints:0,opponentHolds:0});
-});
-test('other row: points outside every group where a 5-player set played with and without the player',()=>{
- const g=make(),ids=team.players.map(p=>p.id),line=(list,winner)=>{g.events.push(event('point_start',{line:list,starting:'O',direction:1}));g.events.push(event('point_end',{winner}));};
- line(['p0','p1','p2','p3','p4','p5','p6'],'us');
- line(['p1','p2','p3','p4','p5','x','y'],'us');
- line(['p0','p1','a','b','c','d','e'],'us');
- const {other,groups,total}=groupOnOffStats([g],{...team,groups:[]},'p0');
- assert.equal(groups.length,0);
- assert.equal(other.on.points,1);assert.equal(other.off.points,1);assert.deepEqual(total.on,other.on);assert.deepEqual(total.off,other.off);
-});

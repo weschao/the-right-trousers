@@ -251,7 +251,7 @@ export function advancedStatsFor(game,team,ose=.56,previousShare=.3,previousPrev
  const base=statsFor([team],[game],huckYards),rows=new Map(base.map(row=>[row.id,{...row,plusMinus:row.goals+row.assists+row.blocks-row.throwaways-row.drops,throwingEdge:0,receivingEdge:0,secondaryThrowingEdge:0,totalEdge:0,totalEdgePerPoint:0,totalEdgePerTouch:0,throwEdgeAllowed:0,receiveEdgeAllowed:0,edgeAllowed:0,edgeAllowedPerPoint:0,opponentScoredRate:0,opponentScoredRateFromD:0,opponentScoredRateFromO:0}]));
  const pointList=pointsOf(game);
  const excludedIds=new Set(pointList.filter(pointExcluded).flatMap(p=>[p.id,...p.events.map(e=>e.id)]));
- if(excludedIds.size)for(const row of statsFor([team],[{...game,events:game.events.filter(e=>excludedIds.has(e.id))}],huckYards))if(rows.has(row.id)){rows.get(row.id).opportunities-=row.opportunities;rows.get(row.id).guardedDefenseOpportunities-=row.guardedDefenseOpportunities;}
+ if(excludedIds.size)for(const row of statsFor([team],[{...game,events:game.events.filter(e=>excludedIds.has(e.id))}],huckYards))if(rows.has(row.id)){rows.get(row.id).opportunities-=row.opportunities;for(const key of ['defenseOpportunities','guardedDefenseOpportunities','defenseOpportunitiesFromD','defenseOpportunitiesFromO','opponentScoredFromD','opponentScoredFromO'])rows.get(row.id)[key]-=row[key];}
  const add=(id,key,value)=>{if(id&&rows.has(id))rows.get(id)[key]+=value;};
  for(const p of pointList){let previous=[];
   if(pointExcluded(p))continue;
@@ -323,32 +323,4 @@ export function mergeData(current,incoming){
  for(const g of incoming.games){if(next.games.some(x=>x.id===g.id))skipped++;else{applyUnguarded(g);next.games.push(g);added++;}}
  for(const source of incoming.sources||[])if(!next.sources.some(s=>s.id===source.id))next.sources.push(source);
  return {data:next,added,skipped};
-}
-// for each group the player belongs to: over points where at least minimumMembers of the group were on the field, hold and opp hold rates with and without the player;
-// total counts each point once if it qualifies for any of the player's groups, plus the other points;
-// other covers points in no group where some minimumMembers players on the field (besides the player when on) also played together at least once on a point the player was on and once on a point the player was off
-export function groupOnOffStats(games,team,playerId,minimumMembers=5){
- const tally=()=>({points:0,oPoints:0,holds:0,dPoints:0,opponentHolds:0}),count=(bucket,point)=>{
-  bucket.points++;
-  if(point.starting==='O'){bucket.oPoints++;if(point.winner==='us')bucket.holds++;}
-  else{bucket.dPoints++;if(point.winner==='them')bucket.opponentHolds++;}
- };
- const groups=(team.groups||[]).filter(group=>group.playerIds.includes(playerId)).map(group=>({groupId:group.id,name:group.name,members:new Set(group.playerIds),on:tally(),off:tally()})),total={on:tally(),off:tally()},other={on:tally(),off:tally()},ungrouped=[],subsetsSeen={on:new Set(),off:new Set()};
- const subsetsOf=(ids,size)=>{const found=[],walk=(start,chosen)=>{if(chosen.length===size){found.push(chosen.join('|'));return;}for(let index=start;index<ids.length;index++)walk(index+1,[...chosen,ids[index]]);};walk(0,[]);return found;};
- for(const game of games)for(const point of pointsOf(game)){
-  if(!point.winner)continue;
-  const onField=new Set([...point.line,...point.events.filter(e=>e.type==='substitution'&&e.side==='us').flatMap(e=>[e.outId,e.inId])].filter(Boolean)),side=onField.has(playerId)?'on':'off';
-  let qualifies=false;
-  for(const group of groups){
-   let memberCount=0;for(const id of group.members)if(onField.has(id))memberCount++;
-   if(memberCount<minimumMembers)continue;
-   qualifies=true;count(group[side],point);
-  }
-  if(qualifies){count(total[side],point);continue;}
-  const subsets=subsetsOf([...onField].filter(id=>id!==playerId).sort(),minimumMembers);
-  for(const key of subsets)subsetsSeen[side].add(key);
-  ungrouped.push({point,side,subsets});
- }
- for(const {point,side,subsets} of ungrouped)if(subsets.some(key=>subsetsSeen.on.has(key)&&subsetsSeen.off.has(key))){count(other[side],point);count(total[side],point);}
- return {groups:groups.map(({members,...rest})=>rest),total,other};
 }
