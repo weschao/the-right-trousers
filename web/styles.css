@@ -15,3 +15,4 @@
 .scoreboard .club,.scoreboard .score-block{position:relative}.scoreboard .club .tournament-link:not(.name-link){position:absolute;top:100%;left:0;margin:2px 0 0;white-space:nowrap}.scoreboard .score-block>.tournament-link{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin:0;white-space:nowrap}
 .scoreboard{padding:24px 0 22px}
 .scoreboard .tournament-link{height:auto;min-height:0;line-height:1.2}
+.rating-review{display:grid;gap:8px;max-height:60vh;overflow:auto}.rating-review-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center}

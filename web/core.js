@@ -32,7 +32,7 @@ export function mirrorGame(game){
   return e;})};
 }
 // a game against a team in the library also belongs to that team: seen from its side, mirrored so 'us' is that team
-export function opponentPerspective(game,teams){const team=teams.find(t=>t.id===game.teamId);return {...mirrorGame(game),teamId:game.opponentTeamId,opponentTeamId:game.teamId,opponent:team.name,opponents:team.players.map(player=>({...player})),opponentPerspective:true};}
+export function opponentPerspective(game,teams){const team=teams.find(t=>t.id===game.teamId);return {...mirrorGame(game),teamId:game.opponentTeamId,opponentTeamId:game.teamId,opponent:team.name,opponentRating:team.rating??null,opponents:team.players.map(player=>({...player})),opponentPerspective:true};}
 const hasLinkedOpponent=(game,teams)=>!!game.opponentTeamId&&teams.some(t=>t.id===game.opponentTeamId);
 export function gamesForTeam(data,teamId){return [...data.games.filter(g=>g.teamId===teamId),...data.games.filter(g=>g.opponentTeamId===teamId&&hasLinkedOpponent(g,data.teams)).map(g=>opponentPerspective(g,data.teams))];}
 // every game from every library team's side; a game between two library teams appears twice, once per side
