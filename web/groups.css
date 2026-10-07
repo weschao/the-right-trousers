@@ -258,3 +258,10 @@
   color: var(--muted);
   font-size: 12px;
 }
+
+.roster-tools.group-tools {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 7px;
+}
