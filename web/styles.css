@@ -10,3 +10,8 @@
 
 .rating-filter{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}.rating-filter+.rating-filter{margin-top:0}.rating-filter input{width:100px}
 .rating-filter select{width:auto;flex:0 0 auto}.rating-filter button{width:auto;flex:0 0 auto}
+
+.scoreboard .club{align-self:center;line-height:1.2}.scoreboard .club small{position:absolute;bottom:100%;left:0;white-space:nowrap}.tournament-link.name-link{display:inline;margin:0;font:inherit;color:inherit}
+.scoreboard .club,.scoreboard .score-block{position:relative}.scoreboard .club .tournament-link:not(.name-link){position:absolute;top:100%;left:0;margin:2px 0 0;white-space:nowrap}.scoreboard .score-block>.tournament-link{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin:0;white-space:nowrap}
+.scoreboard{padding:24px 0 22px}
+.scoreboard .tournament-link{height:auto;min-height:0;line-height:1.2}
