@@ -352,3 +352,48 @@ export function groupOnOffStats(games,team,playerId,minimumMembers=5){
  for(const {point,side,subsets} of ungrouped)if(subsets.some(key=>subsetsSeen.on.has(key)&&subsetsSeen.off.has(key))){count(other[side],point);count(total[side],point);}
  return {groups:groups.map(({members,...rest})=>rest),total,other};
 }
+// Lineup-matched on/off: compare only completed points in the same game and with the same starting side.
+// Each matched on-point weighs once; its off-point matches split that weight equally.
+// Coverage uses all completed player-on points of that starting side, including unmatched points.
+// Effective off sample size = (sum of off weights)^2 / sum of squared off weights.
+// Season values require more than minimumPoints matched on-points and effective off-points.
+export function matchedOnOffStats(games,team,playerId,minimumShared=6,minimumPoints=10){
+ const points=[];
+ for(const game of games)for(const point of pointsOf(game)){
+  if(!point.winner)continue;
+  points.push({game,starting:point.starting,winner:point.winner,onField:new Set([...point.line,...point.events.filter(e=>e.type==='substitution'&&e.side==='us').flatMap(e=>[e.outId,e.inId])].filter(Boolean))});
+ }
+ const bucket=()=>({on:new Set(),off:new Set(),offWeights:new Map(),teammateSets:new Map(),holdPoints:0,holdDifference:0,opponentPoints:0,opponentDifference:0}),
+  groups=(team.groups||[]).filter(group=>group.playerIds.includes(playerId)).map(group=>({groupId:group.id,name:group.name,members:new Set(group.playerIds),...bucket()})),other=bucket(),total=bucket();
+ const on=points.filter(point=>point.onField.has(playerId)),off=points.filter(point=>!point.onField.has(playerId)),
+  subsetsOf=(ids,size)=>{const found=[],walk=(start,chosen)=>{if(chosen.length===size){found.push(chosen.join('|'));return;}for(let index=start;index<ids.length;index++)walk(index+1,[...chosen,ids[index]]);};walk(0,[]);return found;};
+ for(const onPoint of on){
+  const teammates=[...onPoint.onField].filter(id=>id!==playerId),isOffense=onPoint.starting==='O',success=isOffense?'us':'them',matchesByBucket=new Map();
+  for(const offPoint of off){
+   if(offPoint.game!==onPoint.game||offPoint.starting!==onPoint.starting)continue;
+   const shared=teammates.filter(id=>offPoint.onField.has(id));
+   if(shared.length<minimumShared)continue;
+   const matching=groups.filter(group=>shared.filter(id=>group.members.has(id)).length>=minimumShared);
+   for(const target of [...matching,...(matching.length?[]:[other]),total]){
+    if(!matchesByBucket.has(target))matchesByBucket.set(target,[]);matchesByBucket.get(target).push(offPoint);
+    // the sets of minimumShared teammates behind this match; a group lists only sets made of its own members
+    for(const key of subsetsOf(shared.filter(id=>!target.members||target.members.has(id)).sort(),minimumShared)){if(!target.teammateSets.has(key))target.teammateSets.set(key,new Set());target.teammateSets.get(key).add(onPoint);}
+   }
+  }
+  for(const [target,matches] of matchesByBucket){
+   target.on.add(onPoint);
+   for(const offPoint of matches){target.off.add(offPoint);target.offWeights.set(offPoint,(target.offWeights.get(offPoint)||0)+1/matches.length);}
+   const difference=(onPoint.winner===success)-matches.filter(offPoint=>offPoint.winner===success).length/matches.length;
+   if(isOffense){target.holdPoints++;target.holdDifference+=difference;}else{target.opponentPoints++;target.opponentDifference+=difference;}
+  }
+ }
+ const tally=pointSet=>{const result={points:0,oPoints:0,holds:0,dPoints:0,opponentHolds:0};for(const point of pointSet){result.points++;if(point.starting==='O'){result.oPoints++;if(point.winner==='us')result.holds++;}else{result.dPoints++;if(point.winner==='them')result.opponentHolds++;}}return result;},available=tally(on),
+  summarize=({on,off,offWeights,teammateSets,holdPoints,holdDifference,opponentPoints,opponentDifference,members,...rest})=>{
+   const onTally=tally(on),offTally=tally(off),diagnostic=starting=>{
+    const isOffense=starting==='O',matchedOnPoints=isOffense?onTally.oPoints:onTally.dPoints,availableOnPoints=isOffense?available.oPoints:available.dPoints,weights=[...offWeights].filter(([point])=>point.starting===starting).map(([,weight])=>weight),weightSum=weights.reduce((sum,weight)=>sum+weight,0),squaredWeightSum=weights.reduce((sum,weight)=>sum+weight*weight,0),effectiveOffPoints=squaredWeightSum?Math.min(weights.length,weightSum*weightSum/squaredWeightSum):0;
+    return {matchedOnPoints,availableOnPoints,coverage:availableOnPoints?matchedOnPoints/availableOnPoints:null,distinctOffPoints:weights.length,effectiveOffPoints,matchedGames:new Set([...on].filter(point=>point.starting===starting).map(point=>point.game)).size,minimumPoints,sufficientSample:matchedOnPoints>minimumPoints&&effectiveOffPoints>minimumPoints+1e-9};
+   },diagnostics={hold:diagnostic('O'),opponentHold:diagnostic('D')},holdRatePlusMinus=holdPoints?holdDifference/holdPoints*100:null,opponentHoldRatePlusMinus=opponentPoints?opponentDifference/opponentPoints*100:null;
+   return {...rest,on:onTally,off:offTally,diagnostics,teammateSets:[...teammateSets].map(([key,onPoints])=>({playerIds:key.split('|'),points:onPoints.size})).sort((a,b)=>b.points-a.points),holdRatePlusMinus,opponentHoldRatePlusMinus,seasonHoldRatePlusMinus:diagnostics.hold.sufficientSample?holdRatePlusMinus:null,seasonOpponentHoldRatePlusMinus:diagnostics.opponentHold.sufficientSample?opponentHoldRatePlusMinus:null};
+  };
+ return {groups:groups.map(summarize),other:summarize(other),total:summarize(total)};
+}

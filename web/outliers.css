@@ -63,3 +63,29 @@
 .stats-team-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 
 .stats-table td.rate-worse{color:#b3261e;font-weight:600}.stats-table td.rate-better{color:#1b7a3e;font-weight:600}
+.breakdown-table.group-table .stats-table td:first-child,.breakdown-table.group-table .stats-table th:first-child{min-width:0;width:1%;white-space:nowrap}
+
+/* Matched-line detail disclosures and grouped column headers. */
+.matched-calculation{margin:10px 0;color:var(--muted);font-size:12px}
+.matched-calculation summary{display:inline-block;color:var(--green);cursor:pointer;font-weight:600}
+.matched-calculation p{margin:8px 0;line-height:1.6}
+.matched-coverage{margin-top:12px}
+.matched-coverage h4{margin:0 0 8px;font-size:12px}
+.matched-coverage p{font-size:11px;color:var(--muted);line-height:1.6}
+.group-table .stats-table th[colspan]{text-align:center;vertical-align:middle;line-height:1.2;padding-block:9px}
+.group-table .stats-table th[data-matched-toggle]{text-align:center;vertical-align:middle;line-height:1.2;padding-block:9px;cursor:pointer}
+.group-table .stats-table th[data-matched-toggle]:hover,.group-table .stats-table td.matched-analysis-cell:hover{background:#e2ead4}
+.group-table .stats-table td.matched-analysis-cell{cursor:pointer}
+.matched-analysis-toggle{min-height:0;padding:0;border:0;background:transparent;color:inherit;font:inherit;letter-spacing:inherit}
+.matched-analysis-toggle:hover{background:transparent;text-decoration:underline}
+
+/* Fast matched +/- tooltip. */
+.matched-hover-tooltip{position:fixed;z-index:10000;width:max-content;max-width:min(270px,calc(100vw - 16px));padding:6px 8px;border-radius:4px;background:#183c30;color:#fffef9;font-size:10px;font-weight:500;line-height:1.35;white-space:normal;text-align:left;opacity:0;pointer-events:none;transition:opacity .04s ease}
+.matched-hover-tooltip.visible{opacity:1}
+.teammate-sets{margin-top:12px}
+.teammate-sets h4{margin:0 0 8px;font-size:12px}
+.teammate-sets p{font-size:11px;color:var(--muted);line-height:1.6}
+.teammate-sets-toggle{min-height:0;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;text-decoration:underline dotted}
+.teammate-sets-toggle:hover{background:transparent;text-decoration:underline}
+
+.adjusted-summary{margin-bottom:24px}.adjusted-rating-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:14px}.adjusted-rating-card{padding:16px;background:var(--surface,#f7f8f3);border:1px solid var(--line,#dce2d6);border-radius:10px}.adjusted-rating-card h4{margin:0}.adjusted-rating-card p{font-size:12px;line-height:1.55}.adjusted-rating-card .adjusted-estimate{font-size:28px;font-weight:650;margin:12px 0 4px}.adjusted-estimate small{font-size:14px;font-weight:400}.adjusted-validation{border-top:1px solid var(--line,#dce2d6);padding-top:10px}

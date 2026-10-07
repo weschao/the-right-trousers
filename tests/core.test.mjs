@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';
-import {pointsOf,groupOnOffStats} from '../web/core.js';import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,advancedStatsFor,UNGUARDED,UNGUARDED_VERSION,UNKNOWN_MATCHUP,applyUnguarded,recomputeBreaks,matchupBreakdown,matchupCoverage,pointMatchups,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates,gamesForTeam,gamesFromEverySide,throwsPerPossession} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
+import {pointsOf,groupOnOffStats,matchedOnOffStats} from '../web/core.js';import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,advancedStatsFor,UNGUARDED,UNGUARDED_VERSION,UNKNOWN_MATCHUP,applyUnguarded,recomputeBreaks,matchupBreakdown,matchupCoverage,pointMatchups,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates,gamesForTeam,gamesFromEverySide,throwsPerPossession} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
 const team={id:'t',name:'Team',players:Array.from({length:7},(_,i)=>({id:'p'+i,name:'Player '+i,number:String(i)}))};
 const make=()=>({id:'g',teamId:'t',opponent:'Other',opponents:[],field:FIELD,events:[]});
 const start=(g,starting='O',direction=1)=>g.events.push(event('point_start',{line:team.players.map(p=>p.id),starting,direction}));
@@ -190,4 +190,99 @@ test('other row: points outside every group where a 5-player set played with and
  const {other,groups,total}=groupOnOffStats([g],{...team,groups:[]},'p0');
  assert.equal(groups.length,0);
  assert.equal(other.on.points,1);assert.equal(other.off.points,1);assert.deepEqual(total.on,other.on);assert.deepEqual(total.off,other.off);
+});
+test('matched on/off matches a player only with lines sharing their teammates, by shared count',()=>{
+ // p7 replaces p0 on the same line; p8 also replaces p6 on a 5-shared line; the q line never shares and must not enter any baseline
+ const players=[...team.players,{id:'p7',name:'Player 7',number:'7'},{id:'p8',name:'Player 8',number:'8'},...Array.from({length:7},(_,i)=>({id:'q'+i,name:'Q '+i,number:'1'+i}))],
+  withP0=team.players.map(p=>p.id),withP7=['p7',...withP0.slice(1)],fiveShared=['p7',...withP0.slice(1,6),'p8'],qLine=players.filter(p=>p.id.startsWith('q')).map(p=>p.id),
+  wide={...team,players,groups:[{id:'o',name:'O',playerIds:withP0.concat('p7')}]},g=make();
+ const point=(line,winner,starting='O')=>{g.events.push(event('point_start',{line,starting,direction:1}));g.events.push(event('point_end',{winner}));};
+ for(let i=0;i<12;i++){point(withP0,i<9?'us':'them');point(withP7,i<6?'us':'them');point(fiveShared,'them');point(qLine,'us');}
+ point(withP0,'them','D');point(withP7,'us','D');
+ const exact=matchedOnOffStats([g],wide,'p0',6);
+ assert.equal(exact.total.on.oPoints,12);assert.equal(exact.total.off.oPoints,12);
+ assert.ok(Math.abs(exact.total.holdRatePlusMinus-25)<1e-9);assert.ok(Math.abs(exact.total.seasonHoldRatePlusMinus-25)<1e-9);
+ assert.equal(exact.groups[0].on.oPoints,12);assert.equal(exact.other.on.points,0);
+ // D-start points pair only with D-start points: opponent scored with p0 on, not with p7
+ assert.equal(exact.total.opponentHoldRatePlusMinus,100);assert.equal(exact.total.seasonOpponentHoldRatePlusMinus,null);
+ // at 5 shared the p8 line joins the baseline (never holds); its 5 shared teammates are all in the group, so those pairs stay in the group
+ const five=matchedOnOffStats([g],wide,'p0',5);
+ assert.equal(five.total.off.oPoints,24);assert.ok(Math.abs(five.total.holdRatePlusMinus-50)<1e-9);
+ assert.equal(five.groups[0].off.oPoints,24);assert.equal(five.other.on.points,0);
+ const four=matchedOnOffStats([g],wide,'p0',4);assert.equal(four.total.off.oPoints,24);
+ // each on-point weighs once: one on-point matching 1 held off-point and another matching 3 dropped ones read (0-1 + 1-0)/2 = 0, where pair weighting would give (0-1 + 3*(1-0))/4 = 50
+ const uneven=make(),a=['p1','p2','p3','p4','p5','p6'],b=['p1','p2','p3','p4','p5','p8'],add=(line,winner)=>{uneven.events.push(event('point_start',{line,starting:'O',direction:1}));uneven.events.push(event('point_end',{winner}));};
+ add(['p0',...a],'them');add(['p7',...a],'us');add(['p0',...b],'us');for(let i=0;i<3;i++)add(['p7',...b],'them');
+ assert.equal(matchedOnOffStats([uneven],wide,'p0',6).total.holdRatePlusMinus,0);
+ // the season value needs more than minimumPoints paired on both sides
+ assert.equal(matchedOnOffStats([g],wide,'p0',6,12).total.seasonHoldRatePlusMinus,null);
+});
+
+test('matched on/off stays within each game even when game ids are identical',()=>{
+ const easy=make(),hard=make(),on=team.players.map(p=>p.id),off=['p7',...on.slice(1)],add=(g,line,winner,starting)=>g.events.push(event('point_start',{line,starting,direction:1}),event('point_end',{winner}));
+ for(const starting of ['O','D']){
+  const success=starting==='O'?'us':'them',failure=starting==='O'?'them':'us';
+  for(let i=0;i<18;i++){add(easy,on,success,starting);add(hard,off,failure,starting);}
+  for(let i=0;i<2;i++){add(easy,off,success,starting);add(hard,on,failure,starting);}
+ }
+ const total=matchedOnOffStats([easy,hard],team,'p0',6).total;
+ assert.equal(total.holdRatePlusMinus,0);assert.equal(total.opponentHoldRatePlusMinus,0);
+ assert.equal(total.diagnostics.hold.matchedGames,2);assert.equal(total.diagnostics.opponentHold.matchedGames,2);
+ assert.equal(total.diagnostics.hold.coverage,1);
+ // Most weight lands on two easy-game controls; the twenty distinct controls are not twenty effective controls.
+ assert.ok(total.diagnostics.hold.effectiveOffPoints<3);assert.equal(total.seasonHoldRatePlusMinus,null);
+});
+
+test('no same-game comparison leaves zero coverage and no estimate',()=>{
+ const onGame=make(),offGame=make(),on=team.players.map(p=>p.id),off=['p7',...on.slice(1)];
+ start(onGame,'O');onGame.events.push(event('point_end',{winner:'us'}));
+ offGame.events.push(event('point_start',{line:off,starting:'O',direction:1}),event('point_end',{winner:'them'}));
+ const total=matchedOnOffStats([onGame,offGame],team,'p0',6).total;
+ assert.equal(total.holdRatePlusMinus,null);assert.equal(total.on.points,0);assert.equal(total.off.points,0);
+ assert.deepEqual(total.diagnostics.hold,{matchedOnPoints:0,availableOnPoints:1,coverage:0,distinctOffPoints:0,effectiveOffPoints:0,matchedGames:0,minimumPoints:10,sufficientSample:false});
+ assert.equal(total.diagnostics.opponentHold.coverage,null);
+});
+
+test('coverage separates O and D, includes unmatched on-points, and excludes unfinished points',()=>{
+ const g=make(),on=team.players.map(p=>p.id),off=['p7',...on.slice(1)],unmatched=['p0','q1','q2','q3','q4','q5','q6'],add=(line,starting,winner)=>g.events.push(event('point_start',{line,starting,direction:1}),event('point_end',{winner}));
+ add(on,'O','us');add(off,'O','us');add(unmatched,'O','them');add(unmatched,'D','us');
+ g.events.push(event('point_start',{line:on,starting:'O',direction:1}));
+ const total=matchedOnOffStats([g],team,'p0',6).total;
+ assert.equal(total.diagnostics.hold.availableOnPoints,2);assert.equal(total.diagnostics.hold.matchedOnPoints,1);assert.equal(total.diagnostics.hold.coverage,.5);
+ assert.equal(total.diagnostics.hold.effectiveOffPoints,1);assert.equal(total.diagnostics.hold.matchedGames,1);
+ assert.equal(total.diagnostics.opponentHold.availableOnPoints,1);assert.equal(total.diagnostics.opponentHold.coverage,0);assert.equal(total.opponentHoldRatePlusMinus,null);
+});
+
+test('effective comparison size reflects reused controls and gates season values separately for O and D',()=>{
+ const g=make(),a=['p1','p2','p3','p4','p5','p6'],b=['q1','q2','q3','q4','q5','q6'],add=(line,starting,winner)=>g.events.push(event('point_start',{line,starting,direction:1}),event('point_end',{winner}));
+ for(let i=0;i<10;i++){add(['p0',...a],'O','us');add(['p7',...b],'O','them');}
+ add(['p7',...a],'O','them');add(['p0',...b],'O','us');
+ for(let i=0;i<11;i++){add(['p0',...a],'D','them');add(['p7',...a],'D','us');}
+ const total=matchedOnOffStats([g],team,'p0',6).total;
+ assert.equal(total.diagnostics.hold.matchedOnPoints,11);assert.equal(total.diagnostics.hold.distinctOffPoints,11);
+ assert.ok(Math.abs(total.diagnostics.hold.effectiveOffPoints-121/100.1)<1e-9);
+ assert.equal(total.holdRatePlusMinus,100);assert.equal(total.diagnostics.hold.sufficientSample,false);assert.equal(total.seasonHoldRatePlusMinus,null);
+ assert.equal(total.diagnostics.opponentHold.effectiveOffPoints,11);assert.equal(total.diagnostics.opponentHold.sufficientSample,true);assert.equal(total.seasonOpponentHoldRatePlusMinus,100);
+ // Threshold is strictly more than ten, even with floating-point weight accumulation.
+ const ten=make();
+ for(let i=0;i<11;i++)ten.events.push(event('point_start',{line:['p0',...a],starting:'O',direction:1}),event('point_end',{winner:'us'}));
+ for(let i=0;i<10;i++)ten.events.push(event('point_start',{line:['p7',...a],starting:'O',direction:1}),event('point_end',{winner:'us'}));
+ assert.equal(matchedOnOffStats([ten],team,'p0',6).total.seasonHoldRatePlusMinus,null);
+});
+
+test('overlapping group matches do not duplicate total weights and coverage uses all on-points',()=>{
+ const g=make(),ids=team.players.map(p=>p.id),wide={...team,groups:[{id:'a',name:'A',playerIds:ids},{id:'b',name:'B',playerIds:ids}]};
+ start(g);g.events.push(event('point_end',{winner:'us'}));
+ g.events.push(event('point_start',{line:['p7',...ids.slice(1)],starting:'O',direction:1}),event('point_end',{winner:'them'}));
+ g.events.push(event('point_start',{line:['p0','q1','q2','q3','q4','q5','q6'],starting:'O',direction:1}),event('point_end',{winner:'us'}));
+ const result=matchedOnOffStats([g],wide,'p0',6);
+ assert.equal(result.total.diagnostics.hold.matchedOnPoints,1);assert.equal(result.total.diagnostics.hold.effectiveOffPoints,1);assert.equal(result.total.diagnostics.hold.coverage,.5);
+ for(const group of result.groups)assert.deepEqual(group.diagnostics,result.total.diagnostics);
+ assert.equal(result.other.diagnostics.hold.matchedOnPoints,0);
+});
+
+test('empty matched samples have finite diagnostics and no coverage denominator',()=>{
+ const total=matchedOnOffStats([],team,'p0',5).total;
+ for(const d of Object.values(total.diagnostics)){assert.equal(d.coverage,null);assert.equal(d.effectiveOffPoints,0);assert.equal(d.matchedGames,0);assert.equal(d.sufficientSample,false);}
+ assert.equal(total.seasonHoldRatePlusMinus,null);assert.equal(total.seasonOpponentHoldRatePlusMinus,null);
 });
