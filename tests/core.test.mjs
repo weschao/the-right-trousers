@@ -155,3 +155,8 @@ test('a throw with an unguarded marker is never a break, and saved break flags o
  const g=make();g.unguardedApplied=UNGUARDED_VERSION;start(g);pickup(g,'us','p0');pass(g,{force:'forehand',break:true,opponentMarkerId:UNGUARDED});pass(g,{throwerId:'p1',receiverId:'p2',force:'forehand',break:true,opponentMarkerId:'o1'});
  assert.equal(applyUnguarded(g),true);const passes=g.events.filter(e=>e.type==='pass');assert.equal(passes[0].break,false);assert.equal(passes[1].break,true);assert.equal(applyUnguarded(g),false);
  assert.equal(stats(g).p0.breaks,0);assert.equal(stats(g).p1.breaks,1);});
+test('a point ended by an unattributed goal still counts toward opp scored %',()=>{
+ const g=make();start(g,'D');g.events.push(event('unattributed_goal',{side:'them',location:null}));
+ const row=advancedStatsFor(g,team).rows.find(r=>r.id==='p0');
+ assert.equal(row.defenseOpportunities,1);assert.equal(row.opponentScoredRateFromD,1);
+});

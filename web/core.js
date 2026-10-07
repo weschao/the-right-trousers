@@ -251,7 +251,7 @@ export function advancedStatsFor(game,team,ose=.56,previousShare=.3,previousPrev
  const base=statsFor([team],[game],huckYards),rows=new Map(base.map(row=>[row.id,{...row,plusMinus:row.goals+row.assists+row.blocks-row.throwaways-row.drops,throwingEdge:0,receivingEdge:0,secondaryThrowingEdge:0,totalEdge:0,totalEdgePerPoint:0,totalEdgePerTouch:0,throwEdgeAllowed:0,receiveEdgeAllowed:0,edgeAllowed:0,edgeAllowedPerPoint:0,opponentScoredRate:0,opponentScoredRateFromD:0,opponentScoredRateFromO:0}]));
  const pointList=pointsOf(game);
  const excludedIds=new Set(pointList.filter(pointExcluded).flatMap(p=>[p.id,...p.events.map(e=>e.id)]));
- if(excludedIds.size)for(const row of statsFor([team],[{...game,events:game.events.filter(e=>excludedIds.has(e.id))}],huckYards))if(rows.has(row.id)){rows.get(row.id).opportunities-=row.opportunities;for(const key of ['defenseOpportunities','guardedDefenseOpportunities','defenseOpportunitiesFromD','defenseOpportunitiesFromO','opponentScoredFromD','opponentScoredFromO'])rows.get(row.id)[key]-=row[key];}
+ if(excludedIds.size)for(const row of statsFor([team],[{...game,events:game.events.filter(e=>excludedIds.has(e.id))}],huckYards))if(rows.has(row.id)){rows.get(row.id).opportunities-=row.opportunities;rows.get(row.id).guardedDefenseOpportunities-=row.guardedDefenseOpportunities;}
  const add=(id,key,value)=>{if(id&&rows.has(id))rows.get(id)[key]+=value;};
  for(const p of pointList){let previous=[];
   if(pointExcluded(p))continue;
