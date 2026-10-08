@@ -9,7 +9,7 @@ Built from the `main` git history, grouped by week (Monday to Sunday). Latest we
 - **Opponent rating.** A rating field on new games, shown as "(1311)" after the opponent's name in the game view. It can be looked up from the ratings page and is stored per team. Game selection can filter to opponents rated above or below a value.
 
 ### Recording games
-- **Unguarded and Unknown defenders** in the pitch tracker and matchup editor, plus a "Highlight unknown" checkbox. Older games are converted to use Unknown automatically.
+- **Unguarded and Unknown defenders** in the pitch tracker and matchup editor, plus a "Highlight unknown" checkbox. Older games: the first throw of a possession with no marker is set to Unguarded; other blank defenders stay Unknown. Statto imports are unchanged.
 - **Goal and Turnover buttons without a player.** These record a score or turnover when you don't know who was involved. Points with an unattributed goal are left out of throws per possession and EDGE per point.
 - **Unknown offense.** Games still work when the offense roster is empty. The bottom bar shows "Unknown has the disc, marked by X".
 - **Filling gaps.** "Insert point" and "Add play" on the play-by-play screen for points that were missed.
