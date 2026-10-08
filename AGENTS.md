@@ -8,6 +8,7 @@ Ultimate frisbee stat tracker. Static web app in `web/` (no framework, minified 
 - The service worker is network-first with a cache fallback: if the server is down, the browser silently serves stale cached files. Stale code was mistaken for bugs several times (2026-10-03).
 - The sidebar shows `Build dev` when served from `web/`, or a hash and timestamp in built copies, so the running version can be checked at a glance.
 - After changes: `npm test`, then `npm run native:sync` (builds `dist/` and copies into `ios/` and `android/`). The native apps still need a rebuild in Xcode / Android Studio.
+- `web/initial-data.json` (startup seed, loaded only when the library is empty) is gitignored and not copied into `dist/`, so native apps never seed. It must use `"format": "righttrousers"`; the startup check rejects anything else silently.
 - Drive the UI in the in-app browser: the pitch accepts synthetic `MouseEvent('click',{clientX,clientY})` on `#pitch`; saved data is readable from IndexedDB `right-trousers-local` / store `data` / key `library`.
 
 ## Data model notes
