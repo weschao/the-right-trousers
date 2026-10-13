@@ -143,24 +143,39 @@ export function offensiveScoringEfficiency(games,teamId){
 }
 // Season/game-library summary rates. Keeping this event-derived makes the
 // dashboard usable with imported games and future data sources alike.
-// possessions of the given side only; a stall ends a possession but is not a throw. unfinished possessions are ignored.
-export function throwsPerPossession(games,side='us'){
- const result={goal:{possessions:0,throws:0},turnover:{possessions:0,throws:0}};
+// finished possessions of the given side; a stall ends a possession but is not a throw. unfinished possessions are ignored.
+export function possessionsOf(games,side='us'){
+ const possessions=[];
  for(const game of games)for(const point of pointsOf(game)){
   if(pointExcluded(point))continue;
   let current=null;
-  const finish=outcome=>{if(current){result[outcome].possessions++;result[outcome].throws+=current.throws;}current=null;};
+  const finish=outcome=>{if(current)possessions.push({...current,outcome});current=null;};
   for(const e of point.events){
-   if(e.type==='possession_start')current=e.side===side?{throws:0}:null;
+   if(e.type==='possession_start')current=e.side===side?{throws:0,completions:0}:null;
    else if(e.type==='pass'&&e.side===side){
-    if(!current)current={throws:0};
+    if(!current)current={throws:0,completions:0};
     if(e.outcome!=='stall')current.throws++;
+    if(['complete','goal'].includes(e.outcome))current.completions++;
     if(e.outcome==='goal')finish('goal');else if(e.outcome!=='complete')finish('turnover');
    }else if(e.type==='turnover'&&e.side===side)finish('turnover');
   }
  }
+ return possessions;
+}
+export function throwsPerPossession(games,side='us'){
+ const result={goal:{possessions:0,throws:0},turnover:{possessions:0,throws:0}};
+ for(const possession of possessionsOf(games,side)){result[possession.outcome].possessions++;result[possession.outcome].throws+=possession.throws;}
  const total={possessions:result.goal.possessions+result.turnover.possessions,throws:result.goal.throws+result.turnover.throws};
  return {...result,total};
+}
+// index n holds possessions with n completed throws (the scoring throw counts as completed)
+export function scoringByCompletions(games,side='us'){
+ const rows=[];
+ for(const possession of possessionsOf(games,side)){
+  for(let count=rows.length;count<=possession.completions;count++)rows.push({completions:count,possessions:0,goals:0});
+  rows[possession.completions].possessions++;if(possession.outcome==='goal')rows[possession.completions].goals++;
+ }
+ return rows;
 }
 export function teamRates(games,huckYards=35){
  let offense=0,holds=0,cleanHolds=0,defense=0,turns=0,breaks=0,huckAttempts=0,huckCompletions=0;
