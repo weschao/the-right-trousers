@@ -180,3 +180,10 @@ test('linearRegression recovers an exact line and goalRegression builds possessi
  const [possession]=possessionsOf([g]);
  assert.equal(possession.distanceToEndZone,50);assert.equal(possession.distanceFromMidfield,10);assert.equal(possession.verticalYards,55);assert.equal(possession.lateralYards,15);assert.equal(possession.throws,2);
 });
+test('LEDGE adds lateral credit for thrower and receiver on completed throws',()=>{
+ const g=make();start(g,'O',1);
+ g.events.push(event('possession_start',{side:'us',location:{x:40,y:30}}),event('pass',{side:'us',outcome:'complete',throwerId:'p0',receiverId:'p1',from:{x:40,y:30},to:{x:50,y:10}}),event('pass',{side:'us',outcome:'throwaway',throwerId:'p1',from:{x:50,y:10},to:{x:50,y:30}}));
+ const rows=new Map(advancedStatsFor(g,team).rows.map(r=>[r.id,r]));
+ assert.ok(Math.abs(rows.get('p0').lateralEdge-.04)<1e-12&&Math.abs(rows.get('p1').lateralEdge-.04)<1e-12);
+ assert.ok(Math.abs(rows.get('p0').ledge-(rows.get('p0').totalEdge+.04))<1e-12);
+});

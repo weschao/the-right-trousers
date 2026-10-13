@@ -234,6 +234,8 @@ export function teamRates(games,huckYards=35){
  return {offense,holds,cleanHolds,defense,turns,breaks,huckAttempts,huckCompletions};
 }
 // yards only count on a completion; a throwaway, block or stall costs the thrower oSE and a drop costs the receiver oSE
+// LEDGE adds this much per absolute lateral yard of a completed throw, credited to both thrower and receiver
+export const LATERAL_EDGE_PER_YARD=.002;
 export function passEdge(e,point,ose){const complete=['complete','goal'].includes(e.outcome),gainValue=complete?passMetrics(e,point).gain*.007+(e.outcome==='goal'?.18:0):0;return {complete,throwValue:gainValue-(['throwaway','block','stall'].includes(e.outcome)?ose:0),receiveValue:gainValue-(e.outcome==='drop'?ose:0)};}
 // a side is on offense in a point if it started on O or got the disc back, and on defense if it started on D or lost the disc
 export function sideRoles(point,side){
@@ -302,7 +304,7 @@ export function matchupBreakdown(game,playerId,side,ose){
  return {offense:[...offense.values()].map(row=>finish(row,'edge','edgePerPoint')),defense:[...defense.values()].map(row=>finish(row,'edgeAllowed','edgeAllowedPerPoint'))};
 }
 export function advancedStatsFor(game,team,ose=.56,previousShare=.3,previousPreviousShare=.1,includeSecondaryInTotal=false,huckYards=35){
- const base=statsFor([team],[game],huckYards),rows=new Map(base.map(row=>[row.id,{...row,plusMinus:row.goals+row.assists+row.blocks-row.throwaways-row.drops,throwingEdge:0,receivingEdge:0,secondaryThrowingEdge:0,totalEdge:0,totalEdgePerPoint:0,totalEdgePerTouch:0,throwEdgeAllowed:0,receiveEdgeAllowed:0,edgeAllowed:0,edgeAllowedPerPoint:0,opponentScoredRate:0,opponentScoredRateFromD:0,opponentScoredRateFromO:0}]));
+ const base=statsFor([team],[game],huckYards),rows=new Map(base.map(row=>[row.id,{...row,plusMinus:row.goals+row.assists+row.blocks-row.throwaways-row.drops,throwingEdge:0,receivingEdge:0,secondaryThrowingEdge:0,totalEdge:0,totalEdgePerPoint:0,totalEdgePerTouch:0,lateralEdge:0,ledge:0,ledgePerPoint:0,throwEdgeAllowed:0,receiveEdgeAllowed:0,edgeAllowed:0,edgeAllowedPerPoint:0,opponentScoredRate:0,opponentScoredRateFromD:0,opponentScoredRateFromO:0}]));
  const pointList=pointsOf(game);
  const excludedIds=new Set(pointList.filter(pointExcluded).flatMap(p=>[p.id,...p.events.map(e=>e.id)]));
  if(excludedIds.size)for(const row of statsFor([team],[{...game,events:game.events.filter(e=>excludedIds.has(e.id))}],huckYards))if(rows.has(row.id)){rows.get(row.id).opportunities-=row.opportunities;rows.get(row.id).guardedDefenseOpportunities-=row.guardedDefenseOpportunities;}
@@ -315,12 +317,13 @@ export function advancedStatsFor(game,team,ose=.56,previousShare=.3,previousPrev
    const {complete,throwValue,receiveValue}=passEdge(e,p,ose);
    if(e.side!=='us'){add(e.markerId,'throwEdgeAllowed',throwValue);add(e.receiverDefenderId,'receiveEdgeAllowed',receiveValue);continue;}
    add(e.throwerId,'throwingEdge',throwValue);add(e.receiverId,'receivingEdge',receiveValue);
+   if(complete&&e.from&&e.to){const lateralCredit=LATERAL_EDGE_PER_YARD*Math.abs(e.to.y-e.from.y);add(e.throwerId,'lateralEdge',lateralCredit);add(e.receiverId,'lateralEdge',lateralCredit);}
    const value=throwValue+receiveValue;
    add(previous.at(-1),'secondaryThrowingEdge',value*previousShare);add(previous.at(-2),'secondaryThrowingEdge',value*previousPreviousShare);
    if(complete&&e.throwerId)previous.push(e.throwerId); else previous=[];
   }
  }
- for(const row of rows.values()){row.edgeAllowed=row.throwEdgeAllowed+row.receiveEdgeAllowed;row.totalEdge=row.throwingEdge+row.receivingEdge+(includeSecondaryInTotal?row.secondaryThrowingEdge:0);row.totalEdgePerPoint=row.opportunities?row.totalEdge/row.opportunities:0;row.edgeAllowedPerPoint=row.guardedDefenseOpportunities?row.edgeAllowed/row.guardedDefenseOpportunities:0;row.opponentScoredRate=row.defenseOpportunities?(row.opponentScoredFromD+row.opponentScoredFromO)/row.defenseOpportunities:0;row.opponentScoredRateFromD=row.defenseOpportunitiesFromD?row.opponentScoredFromD/row.defenseOpportunitiesFromD:0;row.opponentScoredRateFromO=row.defenseOpportunitiesFromO?row.opponentScoredFromO/row.defenseOpportunitiesFromO:0;const touches=row.catches+row.initiated;row.totalEdgePerTouch=touches?row.totalEdge/touches:0;}
+ for(const row of rows.values()){row.edgeAllowed=row.throwEdgeAllowed+row.receiveEdgeAllowed;row.totalEdge=row.throwingEdge+row.receivingEdge+(includeSecondaryInTotal?row.secondaryThrowingEdge:0);row.totalEdgePerPoint=row.opportunities?row.totalEdge/row.opportunities:0;row.ledge=row.totalEdge+row.lateralEdge;row.ledgePerPoint=row.opportunities?row.ledge/row.opportunities:0;row.edgeAllowedPerPoint=row.guardedDefenseOpportunities?row.edgeAllowed/row.guardedDefenseOpportunities:0;row.opponentScoredRate=row.defenseOpportunities?(row.opponentScoredFromD+row.opponentScoredFromO)/row.defenseOpportunities:0;row.opponentScoredRateFromD=row.defenseOpportunitiesFromD?row.opponentScoredFromD/row.defenseOpportunitiesFromD:0;row.opponentScoredRateFromO=row.defenseOpportunitiesFromO?row.opponentScoredFromO/row.defenseOpportunitiesFromO:0;const touches=row.catches+row.initiated;row.totalEdgePerTouch=touches?row.totalEdge/touches:0;}
  return {rows:[...rows.values()]};
 }
 export function validateData(data){
