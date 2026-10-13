@@ -148,14 +148,21 @@ export function possessionsOf(games,side='us'){
  const possessions=[];
  for(const game of games)for(const point of pointsOf(game)){
   if(pointExcluded(point))continue;
+  const field=game.field||FIELD,attack=(point.direction||1)*(side==='us'?1:-1),
+   distanceToEndZone=location=>attack===1?field.length-field.endzone-location.x:location.x-field.endzone;
   let current=null;
-  const finish=outcome=>{if(current)possessions.push({...current,outcome});current=null;};
+  const begin=location=>({throws:0,completions:0,start:location||null,verticalYards:0,lateralYards:0,missingLocation:false}),
+   finish=outcome=>{if(current)possessions.push({...current,outcome,distanceToEndZone:current.start?distanceToEndZone(current.start):null,distanceFromMidfield:current.start?Math.abs(current.start.y-field.width/2):null});current=null;};
   for(const e of point.events){
-   if(e.type==='possession_start')current=e.side===side?{throws:0,completions:0}:null;
+   if(e.type==='possession_start')current=e.side===side?begin(e.location):null;
    else if(e.type==='pass'&&e.side===side){
-    if(!current)current={throws:0,completions:0};
+    if(!current)current=begin(e.from);
+    if(!current.start&&e.from)current.start=e.from;
     if(e.outcome!=='stall')current.throws++;
-    if(['complete','goal'].includes(e.outcome))current.completions++;
+    if(['complete','goal'].includes(e.outcome)){
+     current.completions++;
+     if(e.from&&e.to){current.verticalYards+=(e.to.x-e.from.x)*attack;current.lateralYards+=Math.abs(e.to.y-e.from.y);}else current.missingLocation=true;
+    }
     if(e.outcome==='goal')finish('goal');else if(e.outcome!=='complete')finish('turnover');
    }else if(e.type==='turnover'&&e.side===side)finish('turnover');
   }
@@ -176,6 +183,38 @@ export function scoringByCompletions(games,side='us'){
   rows[possession.completions].possessions++;if(possession.outcome==='goal')rows[possession.completions].goals++;
  }
  return rows;
+}
+export const GOAL_REGRESSION_VARIABLES=[
+ {key:'distanceFromMidfield',label:'Distance from midfield line (yd)'},
+ {key:'verticalYards',label:'Vertical yards gained'},
+ {key:'lateralYards',label:'Lateral yards (absolute)'},
+ {key:'throws',label:'Throws'}
+];
+// ordinary least squares with intercept; solves by Gauss-Jordan inversion of the normal equations and throws if they are singular
+export function linearRegression(rows,targets){
+ const size=rows[0].length+1,design=rows.map(row=>[1,...row]),
+  matrix=Array.from({length:size},(_,i)=>Array.from({length:size},(_,j)=>design.reduce((sum,row)=>sum+row[i]*row[j],0))),
+  inverse=matrix.map((row,i)=>row.map((_,j)=>i===j?1:0));
+ for(let column=0;column<size;column++){
+  let pivot=column;for(let row=column+1;row<size;row++)if(Math.abs(matrix[row][column])>Math.abs(matrix[pivot][column]))pivot=row;
+  if(Math.abs(matrix[pivot][column])<1e-9)throw new Error('regression variables are collinear or constant');
+  [matrix[column],matrix[pivot]]=[matrix[pivot],matrix[column]];[inverse[column],inverse[pivot]]=[inverse[pivot],inverse[column]];
+  const divisor=matrix[column][column];
+  for(let k=0;k<size;k++){matrix[column][k]/=divisor;inverse[column][k]/=divisor;}
+  for(let row=0;row<size;row++)if(row!==column){const factor=matrix[row][column];for(let k=0;k<size;k++){matrix[row][k]-=factor*matrix[column][k];inverse[row][k]-=factor*inverse[column][k];}}
+ }
+ const coefficients=inverse.map(row=>design.reduce((sum,designRow,r)=>sum+row.reduce((inner,value,j)=>inner+value*designRow[j],0)*targets[r],0)),
+  residualSum=design.reduce((sum,row,i)=>sum+(targets[i]-row.reduce((inner,value,j)=>inner+value*coefficients[j],0))**2,0),
+  mean=targets.reduce((sum,value)=>sum+value,0)/targets.length,totalSum=targets.reduce((sum,value)=>sum+(value-mean)**2,0),
+  degrees=targets.length-size,variance=degrees>0?residualSum/degrees:NaN;
+ return {coefficients,standardErrors:inverse.map((row,i)=>Math.sqrt(variance*row[i])),rSquared:totalSum?1-residualSum/totalSum:NaN,count:targets.length};
+}
+// linear probability model: did a finished possession with at least one completed throw end in a goal. possessions missing a location are left out and counted; possessions without a completion are left out because every yard variable is zero for them.
+export function goalRegression(games,side='us'){
+ const all=possessionsOf(games,side),usable=all.filter(p=>p.start&&!p.missingLocation&&p.completions>0);
+ if(usable.length<=GOAL_REGRESSION_VARIABLES.length+1)throw new Error(`only ${usable.length} possessions with locations`);
+ return {...linearRegression(usable.map(p=>GOAL_REGRESSION_VARIABLES.map(v=>p[v.key])),usable.map(p=>p.outcome==='goal'?1:0)),
+  skipped:all.length-usable.length,goals:usable.filter(p=>p.outcome==='goal').length,variables:GOAL_REGRESSION_VARIABLES};
 }
 export function teamRates(games,huckYards=35){
  let offense=0,holds=0,cleanHolds=0,defense=0,turns=0,breaks=0,huckAttempts=0,huckCompletions=0;

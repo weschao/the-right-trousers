@@ -64,3 +64,4 @@
 
 .group-long-toggle{display:flex;align-items:center;gap:8px;font-size:13px;margin:10px 0}.group-long-toggle input{width:auto;min-height:0;padding:0;margin:0}
 .group-long-toggle input[type=number]{width:52px;min-height:28px;padding:2px 4px}
+.regression-table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:14px}.regression-table th,.regression-table td{padding:4px 8px;border-bottom:1px solid #d8dfd3;text-align:right}.regression-table th:first-child,.regression-table td:first-child{text-align:left}

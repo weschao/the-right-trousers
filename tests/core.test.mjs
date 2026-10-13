@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';
-import {pointsOf} from '../web/core.js';import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,advancedStatsFor,UNGUARDED,UNGUARDED_VERSION,UNKNOWN_MATCHUP,applyUnguarded,recomputeBreaks,matchupBreakdown,matchupCoverage,pointMatchups,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates,gamesForTeam,gamesFromEverySide,throwsPerPossession,scoringByCompletions} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
+import {pointsOf} from '../web/core.js';import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,advancedStatsFor,UNGUARDED,UNGUARDED_VERSION,UNKNOWN_MATCHUP,applyUnguarded,recomputeBreaks,matchupBreakdown,matchupCoverage,pointMatchups,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates,gamesForTeam,gamesFromEverySide,throwsPerPossession,scoringByCompletions,possessionsOf,linearRegression,goalRegression} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
 const team={id:'t',name:'Team',players:Array.from({length:7},(_,i)=>({id:'p'+i,name:'Player '+i,number:String(i)}))};
 const make=()=>({id:'g',teamId:'t',opponent:'Other',opponents:[],field:FIELD,events:[]});
 const start=(g,starting='O',direction=1)=>g.events.push(event('point_start',{line:team.players.map(p=>p.id),starting,direction}));
@@ -171,3 +171,12 @@ test('scoring by completed throws counts the goal throw, ignores stalls and unfi
  assert.deepEqual(scoringByCompletions([g],'us'),[{completions:0,possessions:0,goals:0},{completions:1,possessions:2,goals:0},{completions:2,possessions:1,goals:1}]);
  assert.deepEqual(scoringByCompletions([g],'them'),[{completions:0,possessions:0,goals:0},{completions:1,possessions:1,goals:1}]);
  assert.deepEqual(scoringByCompletions([],'us'),[]);});
+test('linearRegression recovers an exact line and goalRegression builds possession features',()=>{
+ const fit=linearRegression([[0,1],[1,0],[2,5],[3,2],[4,9]],[2,3,10,9,18]);
+ assert.ok(Math.abs(fit.coefficients[0]-1)<1e-9&&Math.abs(fit.coefficients[1]-2)<1e-9&&Math.abs(fit.coefficients[2]-1)<1e-9&&fit.rSquared>1-1e-9);
+ assert.throws(()=>linearRegression([[1],[1],[1]],[0,1,0]));
+ const g=make();start(g,'O',1);
+ g.events.push(event('possession_start',{side:'us',location:{x:40,y:30}}),event('pass',{side:'us',outcome:'complete',from:{x:40,y:30},to:{x:60,y:20}}),event('pass',{side:'us',outcome:'goal',from:{x:60,y:20},to:{x:95,y:25}}));
+ const [possession]=possessionsOf([g]);
+ assert.equal(possession.distanceToEndZone,50);assert.equal(possession.distanceFromMidfield,10);assert.equal(possession.verticalYards,55);assert.equal(possession.lateralYards,15);assert.equal(possession.throws,2);
+});
