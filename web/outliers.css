@@ -61,3 +61,6 @@
 .stats-table td.stat-name.matchup-gap.unknown-matchup{background:linear-gradient(90deg,#ffe08a 50%,#cfe3ff 50%)!important}
 .breakdown-points{display:block;font-weight:400;color:var(--muted)}
 .stats-team-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+
+.group-long-toggle{display:flex;align-items:center;gap:8px;font-size:13px;margin:10px 0}.group-long-toggle input{width:auto;min-height:0;padding:0;margin:0}
+.group-long-toggle input[type=number]{width:52px;min-height:28px;padding:2px 4px}
