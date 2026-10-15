@@ -187,3 +187,18 @@ test('LEDGE adds lateral credit for thrower and receiver on completed throws',()
  assert.ok(Math.abs(rows.get('p0').lateralEdge-.04)<1e-12&&Math.abs(rows.get('p1').lateralEdge-.04)<1e-12);
  assert.ok(Math.abs(rows.get('p0').ledge-(rows.get('p0').totalEdge+.04))<1e-12);
 });
+
+test('completion rates use intended targets for every outcome and exclude opponent throws',()=>{
+ const mixed={...team,players:team.players.map((p,i)=>({...p,gender:i===1?'M':i===2?'F':''}))},g=make();start(g);
+ for(const [receiverId,outcome] of [['p1','complete'],['p1','throwaway'],['p1','drop'],['p2','goal'],['p2','block'],[null,'complete']])pass(g,{receiverId,outcome});
+ pass(g,{side:'them',receiverId:'p1',outcome:'complete'});
+ g.events.push(event('turnover',{side:'us',playerId:'p0',reason:'stall'}));
+ const rows=Object.fromEntries(statsFor([mixed],[g]).map(p=>[p.id,p]));
+ assert.equal(rows.p0.passes,6);assert.equal(rows.p0.completionRate,3/6);
+ assert.equal(rows.p0.maleTargetAttempts,3);assert.equal(rows.p0.maleTargetCompletionRate,1/3);
+ assert.equal(rows.p0.femaleTargetAttempts,2);assert.equal(rows.p0.femaleTargetCompletionRate,1/2);
+ assert.equal(rows.p3.completionRate,null);assert.equal(rows.p3.maleTargetCompletionRate,null);assert.equal(rows.p3.femaleTargetCompletionRate,null);
+ const second={...g,id:'second',events:[]};start(second);pass(second,{receiverId:'p2',outcome:'complete'});
+ const combined=statsFor([mixed],[g,second]).find(p=>p.id==='p0');
+ assert.equal(combined.completionRate,4/7);assert.equal(combined.femaleTargetCompletionRate,2/3);
+});

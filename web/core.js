@@ -86,11 +86,11 @@ export function pullMetrics(possession,point,field){
  return {pullingSide,outOfBounds:Math.hypot(location.x-brick.x,location.y-brick.y)<=BRICK_TOLERANCE_YARDS,vertical:attack===1?location.x-endzone:length-endzone-location.x,horizontal:Math.abs(location.y-width/2)};
 }
 export const STAT_COLUMNS = [
- ['points','Pts'],['oPoints','O pts'],['dPoints','D pts'],['opportunities','O opp'],['defenseOpportunities','D opp'],['passes','Throws'],['completions','Comp'],['catches','Catch'],['initiated','Poss init'],['goals','Goals'],['assists','Ast'],['secondaryAssists','2nd ast'],['throwaways','TA'],['drops','Drops'],['blocks','Blocks'],['throwDistance','Throw yd'],['throwGain','Throw gain'],['catchDistance','Catch yd'],['catchGain','Catch gain'],['throwAllowed','Throw yd allowed'],['receiveAllowed','Catch yd allowed'],['goalsAllowed','Goals allowed'],['assistsAllowed','Ast allowed'],['targets','Targets'],['forcedThrowaways','Forced TA'],['breaks','Breaks'],['breaksAllowed','Breaks allowed'],['pulls','Pulls'],['pullsOutOfBounds','Pulls OB'],['pullVertical','Pull depth'],['pullHorizontal','Pull side offset']
+ ['points','Pts'],['oPoints','O pts'],['dPoints','D pts'],['opportunities','O opp'],['defenseOpportunities','D opp'],['passes','Throws'],['completions','Comp'],['completionRate','Completion rate'],['catches','Catch'],['initiated','Poss init'],['goals','Goals'],['assists','Ast'],['secondaryAssists','2nd ast'],['throwaways','TA'],['drops','Drops'],['blocks','Blocks'],['throwDistance','Throw yd'],['throwGain','Throw gain'],['catchDistance','Catch yd'],['catchGain','Catch gain'],['throwAllowed','Throw yd allowed'],['receiveAllowed','Catch yd allowed'],['goalsAllowed','Goals allowed'],['assistsAllowed','Ast allowed'],['targets','Targets'],['forcedThrowaways','Forced TA'],['breaks','Breaks'],['breaksAllowed','Breaks allowed'],['pulls','Pulls'],['pullsOutOfBounds','Pulls OB'],['pullVertical','Pull depth'],['pullHorizontal','Pull side offset']
 ];
 export function statsFor(teams,games,huckYards=35){
  const rows=new Map();
- const row=id=>{if(!id||id===UNGUARDED)return null;if(!rows.has(id))rows.set(id,{id,name:'Unknown player',number:'',huckAttempts:0,huckCompletions:0,huckCompletionRate:0,guardedDefenseOpportunities:0,defenseOpportunitiesFromD:0,defenseOpportunitiesFromO:0,opponentScoredFromD:0,opponentScoredFromO:0,pullsInBounds:0,pullVerticalTotal:0,pullHorizontalTotal:0,...Object.fromEntries(STAT_COLUMNS.map(([k])=>[k,0]))});return rows.get(id);};
+ const row=id=>{if(!id||id===UNGUARDED)return null;if(!rows.has(id))rows.set(id,{id,name:'Unknown player',number:'',maleTargetAttempts:0,maleTargetCompletions:0,femaleTargetAttempts:0,femaleTargetCompletions:0,maleTargetCompletionRate:null,femaleTargetCompletionRate:null,huckAttempts:0,huckCompletions:0,huckCompletionRate:0,guardedDefenseOpportunities:0,defenseOpportunitiesFromD:0,defenseOpportunitiesFromO:0,opponentScoredFromD:0,opponentScoredFromO:0,pullsInBounds:0,pullVerticalTotal:0,pullHorizontalTotal:0,...Object.fromEntries(STAT_COLUMNS.map(([k])=>[k,0]))});return rows.get(id);};
  for(const t of teams)for(const p of t.players)Object.assign(row(p.id),{name:p.name,number:p.number,gender:p.gender||''});
  const add=(id,key,value=1)=>{const r=row(id);if(r)r[key]+=value;};
  for(const game of games)for(const p of pointsOf(game)){
@@ -109,6 +109,8 @@ export function statsFor(teams,games,huckYards=35){
    const complete=['complete','goal'].includes(e.outcome), {distance,gain}=passMetrics(e,p);
    if(e.side==='us'){
     add(e.throwerId,'passes');
+    const targetGender=rows.get(e.receiverId)?.gender,targetPrefix=targetGender==='M'?'male':targetGender==='F'?'female':null;
+    if(targetPrefix){add(e.throwerId,targetPrefix+'TargetAttempts');if(complete)add(e.throwerId,targetPrefix+'TargetCompletions');}
     if(distance>huckYards){add(e.throwerId,'huckAttempts');if(complete)add(e.throwerId,'huckCompletions');}
     if(complete){add(e.throwerId,'completions');add(e.receiverId,'catches');add(e.throwerId,'throwDistance',distance);add(e.throwerId,'throwGain',gain);add(e.receiverId,'catchDistance',distance);add(e.receiverId,'catchGain',gain);}
     if(e.outcome==='drop')add(e.receiverId,'drops');
@@ -126,7 +128,7 @@ export function statsFor(teams,games,huckYards=35){
    previousPass=complete?e:null;
   }
  }
- for(const row of rows.values()){row.huckCompletionRate=row.huckAttempts?row.huckCompletions/row.huckAttempts:0;row.pullVertical=row.pullsInBounds?row.pullVerticalTotal/row.pullsInBounds:0;row.pullHorizontal=row.pullsInBounds?row.pullHorizontalTotal/row.pullsInBounds:0;}
+ for(const row of rows.values()){row.completionRate=row.passes?row.completions/row.passes:null;for(const prefix of ['male','female'])row[prefix+'TargetCompletionRate']=row[prefix+'TargetAttempts']?row[prefix+'TargetCompletions']/row[prefix+'TargetAttempts']:null;row.huckCompletionRate=row.huckAttempts?row.huckCompletions/row.huckAttempts:0;row.pullVertical=row.pullsInBounds?row.pullVerticalTotal/row.pullsInBounds:0;row.pullHorizontal=row.pullsInBounds?row.pullHorizontalTotal/row.pullsInBounds:0;}
  return [...rows.values()];
 }
 
