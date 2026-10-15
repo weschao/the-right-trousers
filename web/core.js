@@ -22,6 +22,8 @@ export function pointsOf(game) {
  }
  return points;
 }
+// Match the throwaway stat: blocked throws and stalls are charged to the thrower too.
+export function playerThrowaways(games,playerId){return games.flatMap(game=>pointsOf(game).flatMap((point,pointIndex)=>point.events.filter(e=>e.side==='us'&&(e.type==='pass'&&e.throwerId===playerId&&['throwaway','block','stall'].includes(e.outcome)||e.type==='turnover'&&e.playerId===playerId&&e.reason==='stall')).map(event=>({game,point,pointIndex,event}))));}
 export function mirrorGame(game){
  const flip=side=>side==='us'?'them':side==='them'?'us':side,swap=(event,first,second)=>{const firstValue=event[first];event[first]=event[second];event[second]=firstValue;};
  return {...game,events:game.events.map(source=>{const e={...source};if(e.side)e.side=flip(e.side);
@@ -86,7 +88,7 @@ export function pullMetrics(possession,point,field){
  return {pullingSide,outOfBounds:Math.hypot(location.x-brick.x,location.y-brick.y)<=BRICK_TOLERANCE_YARDS,vertical:attack===1?location.x-endzone:length-endzone-location.x,horizontal:Math.abs(location.y-width/2)};
 }
 export const STAT_COLUMNS = [
- ['points','Pts'],['oPoints','O pts'],['dPoints','D pts'],['opportunities','O opp'],['defenseOpportunities','D opp'],['passes','Throws'],['completions','Comp'],['completionRate','Completion rate'],['catches','Catch'],['initiated','Poss init'],['goals','Goals'],['assists','Ast'],['secondaryAssists','2nd ast'],['throwaways','TA'],['drops','Drops'],['blocks','Blocks'],['throwDistance','Throw yd'],['throwGain','Throw gain'],['catchDistance','Catch yd'],['catchGain','Catch gain'],['throwAllowed','Throw yd allowed'],['receiveAllowed','Catch yd allowed'],['goalsAllowed','Goals allowed'],['assistsAllowed','Ast allowed'],['targets','Targets'],['forcedThrowaways','Forced TA'],['breaks','Breaks'],['breaksAllowed','Breaks allowed'],['pulls','Pulls'],['pullsOutOfBounds','Pulls OB'],['pullVertical','Pull depth'],['pullHorizontal','Pull side offset']
+ ['points','Pts'],['oPoints','O pts'],['dPoints','D pts'],['opportunities','O opp'],['defenseOpportunities','D opp'],['passes','Throws'],['completions','Comp'],['completionRate','Completion rate'],['catches','Catch'],['initiated','Poss init'],['goals','Goals'],['assists','Ast'],['secondaryAssists','2nd ast'],['throwaways','Throwaways'],['drops','Drops'],['blocks','Blocks'],['throwDistance','Throw yd'],['throwGain','Throw gain'],['catchDistance','Catch yd'],['catchGain','Catch gain'],['throwAllowed','Throw yd allowed'],['receiveAllowed','Catch yd allowed'],['goalsAllowed','Goals allowed'],['assistsAllowed','Ast allowed'],['targets','Targets'],['forcedThrowaways','Forced TA'],['breaks','Breaks'],['breaksAllowed','Breaks allowed'],['pulls','Pulls'],['pullsOutOfBounds','Pulls OB'],['pullVertical','Pull depth'],['pullHorizontal','Pull side offset']
 ];
 export function statsFor(teams,games,huckYards=35){
  const rows=new Map();

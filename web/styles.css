@@ -16,3 +16,9 @@
 .scoreboard{padding:24px 0 22px}
 .scoreboard .tournament-link{height:auto;min-height:0;line-height:1.2}
 .rating-review{display:grid;gap:8px;max-height:60vh;overflow:auto}.rating-review-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center}
+
+.point-video{white-space:nowrap;font-size:13px}.review-controls{flex-wrap:wrap}#video-field-status{min-height:1em}
+
+.stats-table .stat-drilldown{display:block;width:100%;min-height:30px;padding:4px 8px;border:0;background:transparent;color:var(--green);text-decoration:underline;text-underline-offset:3px;font:inherit}.stats-table .stat-drilldown:hover{background:#eaf0e3}
+
+dialog.wide-modal{max-width:1100px}.throwaway-table{table-layout:fixed;white-space:normal}.throwaway-table th,.throwaway-table td{overflow-wrap:anywhere;text-align:left}.throwaway-table th:first-child,.throwaway-table td:first-child{position:static;min-width:0}.throwaway-table th:not(:first-child){min-width:0;max-width:none}.throwaway-table .table-sort{white-space:normal;text-align:left;max-width:100%}@media(max-width:620px){.throwaway-table th,.throwaway-table td{padding:10px 4px}.wide-modal .modal-body{padding:0 10px 20px}}
