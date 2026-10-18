@@ -97,7 +97,7 @@ export function pullMetrics(possession,point,field){
  return {pullingSide,outOfBounds:Math.hypot(location.x-brick.x,location.y-brick.y)<=BRICK_TOLERANCE_YARDS,vertical:attack===1?location.x-endzone:length-endzone-location.x,horizontal:Math.abs(location.y-width/2)};
 }
 export const STAT_COLUMNS = [
- ['points','Pts'],['oPoints','O pts'],['dPoints','D pts'],['opportunities','O opp'],['defenseOpportunities','D opp'],['passes','Throws'],['completions','Comp'],['completionRate','Completion rate'],['catches','Catch'],['initiated','Poss init'],['goals','Goals'],['assists','Ast'],['secondaryAssists','2nd ast'],['throwaways','Throwaways'],['drops','Drops'],['assistThrowawayRatio','Ast/TA'],['throwawaysPerTouch','TA/touch'],['blocks','Blocks'],['throwDistance','Throw yd'],['throwGain','Throw gain'],['catchDistance','Catch yd'],['catchGain','Catch gain'],['throwAllowed','Throw yd allowed'],['receiveAllowed','Catch yd allowed'],['goalsAllowed','Goals allowed'],['assistsAllowed','Ast allowed'],['targets','Targets'],['forcedThrowaways','Forced TA'],['breaks','Breaks'],['breaksAllowed','Breaks allowed'],['pulls','Pulls'],['pullsOutOfBounds','Pulls OB'],['pullVertical','Pull depth'],['pullHorizontal','Pull side offset']
+ ['points','Pts'],['oPoints','O pts'],['dPoints','D pts'],['opportunities','O opp'],['defenseOpportunities','D opp'],['passes','Throws'],['completions','Comp'],['completionRate','Completion rate'],['catches','Catch'],['initiated','Poss init'],['goals','Goals'],['assists','Ast'],['secondaryAssists','2nd ast'],['throwaways','Throwaways'],['drops','Drops'],['assistThrowawayRatio','Ast/TA'],['throwawaysPerTouch','TA/touch'],['blocks','Blocks'],['throwDistance','Throw yd'],['throwGain','Throw gain'],['throwGainPerThrow','Throw gain/throw'],['catchDistance','Catch yd'],['catchGain','Catch gain'],['receiveGainPerCatch','Receive gain/catch'],['throwAllowed','Throw yd allowed'],['receiveAllowed','Catch yd allowed'],['goalsAllowed','Goals allowed'],['assistsAllowed','Ast allowed'],['targets','Targets'],['forcedThrowaways','Forced TA'],['breaks','Breaks'],['breaksAllowed','Breaks allowed'],['pulls','Pulls'],['pullsOutOfBounds','Pulls OB'],['pullVertical','Pull depth'],['pullHorizontal','Pull side offset']
 ];
 export function statsFor(teams,games,huckYards=35){
  const rows=new Map();
@@ -139,7 +139,7 @@ export function statsFor(teams,games,huckYards=35){
    previousPass=complete?e:null;
   }
  }
- for(const row of rows.values()){row.assistThrowawayRatio=row.throwaways?row.assists/row.throwaways:null;row.throwawaysPerTouch=row.catches+row.initiated?row.throwaways/(row.catches+row.initiated):null;row.completionRate=row.passes?row.completions/row.passes:null;for(const prefix of ['male','female'])row[prefix+'TargetCompletionRate']=row[prefix+'TargetAttempts']?row[prefix+'TargetCompletions']/row[prefix+'TargetAttempts']:null;row.huckCompletionRate=row.huckAttempts?row.huckCompletions/row.huckAttempts:0;row.pullVertical=row.pullsInBounds?row.pullVerticalTotal/row.pullsInBounds:0;row.pullHorizontal=row.pullsInBounds?row.pullHorizontalTotal/row.pullsInBounds:0;}
+ for(const row of rows.values()){row.throwGainPerThrow=row.passes?row.throwGain/row.passes:null;row.receiveGainPerCatch=row.catches?row.catchGain/row.catches:null;row.assistThrowawayRatio=row.throwaways?row.assists/row.throwaways:null;row.throwawaysPerTouch=row.catches+row.initiated?row.throwaways/(row.catches+row.initiated):null;row.completionRate=row.passes?row.completions/row.passes:null;for(const prefix of ['male','female'])row[prefix+'TargetCompletionRate']=row[prefix+'TargetAttempts']?row[prefix+'TargetCompletions']/row[prefix+'TargetAttempts']:null;row.huckCompletionRate=row.huckAttempts?row.huckCompletions/row.huckAttempts:0;row.pullVertical=row.pullsInBounds?row.pullVerticalTotal/row.pullsInBounds:0;row.pullHorizontal=row.pullsInBounds?row.pullHorizontalTotal/row.pullsInBounds:0;}
  return [...rows.values()];
 }
 
@@ -249,7 +249,8 @@ export function teamRates(games,huckYards=35){
 // yards only count on a completion; a throwaway, block or stall costs the thrower oSE and a drop costs the receiver oSE
 // LEDGE adds this much per absolute lateral yard of a completed throw, credited to both thrower and receiver
 export const LATERAL_EDGE_PER_YARD=.002;
-export function passEdge(e,point,ose){const complete=['complete','goal'].includes(e.outcome),gainValue=complete?passMetrics(e,point).gain*.007+(e.outcome==='goal'?.18:0):0;return {complete,throwValue:gainValue-(['throwaway','block','stall'].includes(e.outcome)?ose:0),receiveValue:gainValue-(e.outcome==='drop'?ose:0)};}
+// EDGE values goal catches at the front goal line; recorded locations and ordinary yardage stay unchanged.
+export function passEdge(e,point,ose,field=FIELD){const attack=(point.direction||1)*(e.side==='them'?-1:1),edgePass=e.outcome==='goal'&&e.to?{...e,to:{...e.to,x:attack===1?field.length-field.endzone:field.endzone}}:e,complete=['complete','goal'].includes(e.outcome),gainValue=complete?passMetrics(edgePass,point).gain*.007+(e.outcome==='goal'?.18:0):0;return {complete,throwValue:gainValue-(['throwaway','block','stall'].includes(e.outcome)?ose:0),receiveValue:gainValue-(e.outcome==='drop'?ose:0)};}
 // a side is on offense in a point if it started on O or got the disc back, and on defense if it started on D or lost the disc
 export function sideRoles(point,side){
  const startsOnOffense=(point.starting==='O')===(side==='us'),lostDisc=(e,lostSide)=>e.side===lostSide&&(e.type==='turnover'||(e.type==='pass'&&!['complete','goal'].includes(e.outcome)));
@@ -290,7 +291,7 @@ export function matchupBreakdown(game,playerId,side,ose){
  const defenseRow=id=>{const key=id||null;if(!defense.has(key))defense.set(key,{opponentId:key,pointIds:new Set(),throwsMarked:0,completionsAllowed:0,throwGainAllowed:0,throwaways:0,breaksAllowed:0,targets:0,catchesAllowed:0,goalsAllowed:0,catchGainAllowed:0,blocks:0,edgeAllowed:0});return defense.get(key);};
  for(const point of pointsOf(game))for(const e of point.events){
   if(e.type!=='pass')continue;
-  const skipEdge=pointExcluded(point),fields=fieldsFor(e.side),marker=e[fields.marker],receiverDefender=e[fields.receiverDefender],{complete,throwValue,receiveValue}=passEdge(e,point,ose),gain=complete?passMetrics(e,point).gain:0,turnover=['throwaway','block','stall'].includes(e.outcome);
+  const skipEdge=pointExcluded(point),fields=fieldsFor(e.side),marker=e[fields.marker],receiverDefender=e[fields.receiverDefender],{complete,throwValue,receiveValue}=passEdge(e,point,ose,game.field),gain=complete?passMetrics(e,point).gain:0,turnover=['throwaway','block','stall'].includes(e.outcome);
   if(e.side===side){
    if(e.throwerId===playerId){const row=offenseRow(marker);if(!skipEdge)row.pointIds.add(point.id);row.throws++;if(complete){row.completions++;row.throwGain+=gain;}if(turnover)row.turnovers++;if(e.outcome==='goal')row.assists++;if(e.break)row.breaks++;row.edge+=skipEdge?0:throwValue;}
    if(e.receiverId===playerId){const row=offenseRow(receiverDefender);if(!skipEdge)row.pointIds.add(point.id);row.targets++;if(complete){row.catches++;row.catchGain+=gain;}if(e.outcome==='drop')row.drops++;if(e.outcome==='goal')row.goals++;row.edge+=skipEdge?0:receiveValue;}
@@ -327,7 +328,7 @@ export function advancedStatsFor(game,team,ose=.56,previousShare=.3,previousPrev
   for(const e of p.events){
    if(e.type==='possession_start'){if(e.side==='us')previous=[];continue;}
    if(e.type!=='pass')continue;
-   const {complete,throwValue,receiveValue}=passEdge(e,p,ose);
+   const {complete,throwValue,receiveValue}=passEdge(e,p,ose,game.field);
    if(e.side!=='us'){add(e.markerId,'throwEdgeAllowed',throwValue);add(e.receiverDefenderId,'receiveEdgeAllowed',receiveValue);continue;}
    add(e.throwerId,'throwingEdge',throwValue);add(e.receiverId,'receivingEdge',receiveValue);
    if(complete&&e.from&&e.to){const lateralCredit=LATERAL_EDGE_PER_YARD*Math.abs(e.to.y-e.from.y);add(e.throwerId,'lateralEdge',lateralCredit);add(e.receiverId,'lateralEdge',lateralCredit);}

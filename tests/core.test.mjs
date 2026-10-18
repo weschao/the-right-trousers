@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';
-import {pointsOf} from '../web/core.js';import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,advancedStatsFor,UNGUARDED,UNGUARDED_VERSION,UNKNOWN_MATCHUP,applyUnguarded,recomputeBreaks,setPointDirection,passMetrics,matchupBreakdown,matchupCoverage,pointMatchups,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates,gamesForTeam,gamesFromEverySide,throwsPerPossession,scoringByCompletions,possessionsOf,linearRegression,goalRegression} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
+import {pointsOf} from '../web/core.js';import {FIELD,emptyData,event,mirrorGame,isBreak,pullMetrics,advancedStatsFor,UNGUARDED,UNGUARDED_VERSION,UNKNOWN_MATCHUP,applyUnguarded,recomputeBreaks,setPointDirection,passMetrics,passEdge,matchupBreakdown,matchupCoverage,pointMatchups,statsFor,gameState,mergeData,validateData,playersForGroup,lineSlots,teamRates,gamesForTeam,gamesFromEverySide,throwsPerPossession,scoringByCompletions,possessionsOf,linearRegression,goalRegression} from '../web/core.js';import {readStattoZip,convertStatto} from '../web/statto.js';
 const team={id:'t',name:'Team',players:Array.from({length:7},(_,i)=>({id:'p'+i,name:'Player '+i,number:String(i)}))};
 const make=()=>({id:'g',teamId:'t',opponent:'Other',opponents:[],field:FIELD,events:[]});
 const start=(g,starting='O',direction=1)=>g.events.push(event('point_start',{line:team.players.map(p=>p.id),starting,direction}));
@@ -217,4 +217,30 @@ test('editing attack direction keeps coordinates fixed and recalculates gains fo
  assert.deepEqual(pointsOf(g)[1],beforePoints[1]);assert.deepEqual(gameState(g).score,gameState(before).score);
  assert.equal(setPointDirection(g,pointId,-1),false);assert.equal(setPointDirection(g,pointId,0),false);assert.equal(setPointDirection(g,'missing',1),false);
  assert.equal(setPointDirection(g,pointId,1),true);assert.deepEqual(g,before);
+});
+
+test('goal EDGE stops at the front goal line for both teams and attack directions',()=>{
+ for(const field of [FIELD,{length:100,width:37,endzone:18}])for(const direction of [1,-1])for(const side of ['us','them']){
+  const attack=direction*(side==='them'?-1:1),goalLine=attack===1?field.length-field.endzone:field.endzone,from={x:goalLine-attack*15,y:10},to={x:goalLine+attack*8,y:25},e={side,outcome:'goal',from,to},before=structuredClone(e),point={direction};
+  const expected=15*.007+.18,result=passEdge(e,point,.56,field);
+  assert.ok(Math.abs(result.throwValue-expected)<1e-12);assert.equal(result.receiveValue,result.throwValue);assert.deepEqual(e,before);assert.equal(passMetrics(e,point).gain,23);
+  assert.ok(Math.abs(passEdge({...e,outcome:'complete'},point,.56,field).throwValue-23*.007)<1e-12);
+ }
+});
+test('goal-line EDGE flows through secondary, total, LEDGE, defense, and matchup values',()=>{
+ const g=make();g.field={length:100,width:37,endzone:18};g.opponents=[{id:'o0',name:'Marker'},{id:'o1',name:'Defender'}];start(g);pickup(g,'us','p0');
+ pass(g,{throwerId:'p0',receiverId:'p1',from:{x:25,y:20},to:{x:40,y:20}});pass(g,{throwerId:'p1',receiverId:'p2',from:{x:40,y:20},to:{x:65,y:20}});pass(g,{throwerId:'p2',receiverId:'p3',from:{x:65,y:20},to:{x:95,y:30},outcome:'goal',opponentMarkerId:'o0',opponentReceiverDefenderId:'o1'});
+ const before=structuredClone(g),atLine=structuredClone(g);atLine.events.at(-1).to.x=82;
+ const edgeKeys=['throwingEdge','receivingEdge','secondaryThrowingEdge','totalEdge','totalEdgePerPoint','totalEdgePerTouch','lateralEdge','ledge','ledgePerPoint','throwEdgeAllowed','receiveEdgeAllowed','edgeAllowed','edgeAllowedPerPoint'];
+ const values=(game,t)=>advancedStatsFor(game,t,.56,.3,.1,true).rows.map(row=>[row.id,...edgeKeys.map(key=>row[key])]);
+ assert.deepEqual(values(g,team),values(atLine,team));const opponents={id:'opponents',players:g.opponents};assert.deepEqual(values(mirrorGame(g),opponents),values(mirrorGame(atLine),opponents));
+ const rows=Object.fromEntries(advancedStatsFor(g,team,.56,.3,.1,true).rows.map(row=>[row.id,row])),goalValue=17*.007+.18;
+ assert.ok(Math.abs(rows.p2.throwingEdge-goalValue)<1e-12);assert.ok(Math.abs(rows.p3.receivingEdge-goalValue)<1e-12);assert.ok(Math.abs(rows.p1.secondaryThrowingEdge-goalValue*2*.3)<1e-12);assert.equal(rows.p3.lateralEdge,.02);assert.equal(rows.p2.throwGain,30);
+ for(const [game,player,side,key] of [[g,'p2','us','edge'],[g,'p3','us','edge'],[g,'o0','them','edgeAllowed'],[g,'o1','them','edgeAllowed']]){const result=matchupBreakdown(game,player,side,.56),row=(side==='us'?result.offense:result.defense).find(row=>Math.abs(row[key]-goalValue)<1e-12);assert.ok(row);}
+ assert.deepEqual(g,before);
+});
+test('gain per throw and catch uses combined totals, signed forward gain, goals, and empty denominators',()=>{
+ const first=make();start(first);pass(first,{from:{x:25,y:20},to:{x:28,y:24}});pass(first,{from:{x:25,y:20},to:{x:60,y:20},outcome:'throwaway'});
+ const second=make();start(second);pass(second,{from:{x:80,y:20},to:{x:95,y:20},outcome:'goal'});pass(second,{from:{x:30,y:20},to:{x:50,y:20},outcome:'drop'});pass(second,{throwerId:'p2',receiverId:'p3',outcome:'block'});pass(second,{throwerId:'p4',receiverId:'p5',from:{x:30,y:20},to:{x:20,y:35}});
+ const rows=Object.fromEntries(statsFor([team],[first,second]).map(row=>[row.id,row]));assert.equal(rows.p0.throwGainPerThrow,18/4);assert.equal(rows.p1.receiveGainPerCatch,18/2);assert.equal(rows.p4.throwGainPerThrow,-10);assert.equal(rows.p5.receiveGainPerCatch,-10);assert.equal(rows.p2.throwGainPerThrow,0);assert.equal(rows.p2.receiveGainPerCatch,null);assert.equal(rows.p6.throwGainPerThrow,null);assert.equal(rows.p6.receiveGainPerCatch,null);
 });
