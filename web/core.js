@@ -62,6 +62,15 @@ export function recomputeBreaks(game){
  for(const point of pointsOf(game))for(const e of point.events)if(e.type==='pass'){const value=isBreak(e,point,game.field);if(!!e.break!==value){e.break=value;changed=true;}}
  return changed;
 }
+// Changes only this point's attack direction; field coordinates stay fixed.
+export function setPointDirection(game,pointId,direction){
+ const start=game.events.find(e=>e.type==='point_start'&&e.id===pointId);
+ if(!start||![1,-1].includes(direction)||start.direction===direction)return false;
+ start.direction=direction;
+ const point=pointsOf(game).find(point=>point.id===pointId);
+ for(const e of point.events)if(e.type==='pass')e.break=isBreak(e,point,game.field);
+ return true;
+}
 export function gameState(game){
  const points=pointsOf(game), point=points.at(-1);let side=point?.starting==='D'?'them':'us',holder=null,location=null,marker=null,needsPickup=true;
  for(const e of point?.events||[]){
