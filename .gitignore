@@ -3,3 +3,4 @@ dist/
 artifacts/
 web/initial-data.json
 .DS_Store
+test-data/

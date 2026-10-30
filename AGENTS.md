@@ -18,3 +18,7 @@ Ultimate frisbee stat tracker. Static web app in `web/` (no framework, minified 
 - `game.defenderPairings` is a symmetric one-to-one list of [player, player] pairs; every recorded matchup updates it, so pairings survive turnovers.
 - `force` events carry the defending side; each pass stores the force in effect and a derived `break` flag (`isBreak` in core.js).
 - The pull is the first `possession_start` of a point; `pullerId` lives on it and distances are derived by `pullMetrics`.
+
+## Stats terminology
+
+- EAPpm means Edge Allowed/point +/-.
