@@ -112,7 +112,7 @@ export function statsFor(teams,games,huckYards=35){
   for(const id of new Set(playersOnPoint)){add(id,'points');add(id,p.starting==='O'?'oPoints':'dPoints');if(opportunity)add(id,'opportunities');if(defenseOpportunity)add(id,'guardedDefenseOpportunities');if(anyDefenseOpportunity){add(id,'defenseOpportunities');const origin=p.starting==='D'?'D':'O';add(id,`defenseOpportunitiesFrom${origin}`);if(p.winner==='them')add(id,`opponentScoredFrom${origin}`);}}
   let previousPass=null;
   const pull=p.events.find(e=>e.type==='possession_start');
-  if(pull?.pullerId&&pull.side==='them'){const metrics=pullMetrics(pull,p,game.field);add(pull.pullerId,'pulls');if(metrics.outOfBounds)add(pull.pullerId,'pullsOutOfBounds');else{add(pull.pullerId,'pullsInBounds');add(pull.pullerId,'pullVerticalTotal',metrics.vertical);add(pull.pullerId,'pullHorizontalTotal',metrics.horizontal);}}
+  if(pull?.pullerId&&pull.side==='them'){const metrics=pullMetrics(pull,p,game.field);add(pull.pullerId,'pulls');if(metrics.outOfBounds)add(pull.pullerId,'pullsOutOfBounds');else add(pull.pullerId,'pullsInBounds');add(pull.pullerId,'pullVerticalTotal',metrics.outOfBounds?50:metrics.vertical);add(pull.pullerId,'pullHorizontalTotal',metrics.outOfBounds?0:metrics.horizontal);}
   for(const e of p.events){
    if(e.type==='possession_start'){if(e.side==='us')add(e.playerId,'initiated');previousPass=null;}
    if(e.type==='turnover'){if(e.side==='them')add(e.blockerId,'blocks',e.reason==='block'?1:0);if(e.side==='us'&&e.reason==='stall')add(e.playerId,'throwaways');if(e.side==='them'&&e.callahan)add(e.blockerId,'goals');previousPass=null;}
@@ -139,7 +139,7 @@ export function statsFor(teams,games,huckYards=35){
    previousPass=complete?e:null;
   }
  }
- for(const row of rows.values()){row.throwGainPerThrow=row.passes?row.throwGain/row.passes:null;row.receiveGainPerCatch=row.catches?row.catchGain/row.catches:null;row.assistThrowawayRatio=row.throwaways?row.assists/row.throwaways:null;row.throwawaysPerTouch=row.catches+row.initiated?100*row.throwaways/(row.catches+row.initiated):null;row.completionRate=row.passes?row.completions/row.passes:null;for(const prefix of ['male','female'])row[prefix+'TargetCompletionRate']=row[prefix+'TargetAttempts']?row[prefix+'TargetCompletions']/row[prefix+'TargetAttempts']:null;row.huckCompletionRate=row.huckAttempts?row.huckCompletions/row.huckAttempts:0;row.pullVertical=row.pullsInBounds?row.pullVerticalTotal/row.pullsInBounds:0;row.pullHorizontal=row.pullsInBounds?row.pullHorizontalTotal/row.pullsInBounds:0;}
+ for(const row of rows.values()){row.throwGainPerThrow=row.passes?row.throwGain/row.passes:null;row.receiveGainPerCatch=row.catches?row.catchGain/row.catches:null;row.assistThrowawayRatio=row.throwaways?row.assists/row.throwaways:null;row.throwawaysPerTouch=row.catches+row.initiated?100*row.throwaways/(row.catches+row.initiated):null;row.completionRate=row.passes?row.completions/row.passes:null;for(const prefix of ['male','female'])row[prefix+'TargetCompletionRate']=row[prefix+'TargetAttempts']?row[prefix+'TargetCompletions']/row[prefix+'TargetAttempts']:null;row.huckCompletionRate=row.huckAttempts?row.huckCompletions/row.huckAttempts:0;row.pullVertical=row.pulls?row.pullVerticalTotal/row.pulls:0;row.pullHorizontal=row.pulls?row.pullHorizontalTotal/row.pulls:0;}
  return [...rows.values()];
 }
 
