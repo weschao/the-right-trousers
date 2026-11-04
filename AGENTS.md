@@ -15,7 +15,7 @@ Ultimate frisbee stat tracker. Static web app in `web/` (no framework, minified 
 
 - Events are ordered in `game.events`; `pointsOf` groups them and applies substitutions to *copies* of the lines, so `point_start.line` stays the starting line. Before 2026-10-03 it mutated the stored array, so older saved games have post-substitution starting lines. Point `events` arrays share event references with `game.events`.
 - Our-side defender fields are `opponentMarkerId` / `opponentReceiverDefenderId`; opponent-side are `markerId` / `receiverDefenderId`.
-- `game.defenderPairings` is a symmetric one-to-one list of [player, player] pairs; every recorded matchup updates it, so pairings survive turnovers.
+- `game.defenderMatchupHistory` retains symmetric [player, player] pairs, oldest to newest; recording a pair moves it to the end without discarding other matchups. Legacy games recover history from point matchups, recorded markers/defenders, and `defenderPairings`. Point assignments live in `point_start.matchups` and survive turnovers; new points assign each offensive player their most recent available defender, one-to-one. Selecting lines does not create matchups.
 - `force` events carry the defending side; each pass stores the force in effect and a derived `break` flag (`isBreak` in core.js).
 - The pull is the first `possession_start` of a point; `pullerId` lives on it and distances are derived by `pullMetrics`.
 

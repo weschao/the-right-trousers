@@ -267,6 +267,34 @@ export function pointMatchups(point){
  }
  return [...explicit.filter(pair=>pair[0]&&pair[1]),...derived];
 }
+// Game history is oldest first; a repeated pair moves to the end without removing either player's other matchups.
+const rememberMatchup=(history,first,second)=>{if(!first||!second||first===second||isPlaceholderMatchup(first)||isPlaceholderMatchup(second))return;const index=history.findIndex(pair=>pair.includes(first)&&pair.includes(second));if(index>=0)history.splice(index,1);history.push([first,second]);};
+export function defenderHistory(game){
+ if(game.defenderMatchupHistory)return game.defenderMatchupHistory.map(pair=>[...pair]);
+ const history=[];
+ for(const e of game.events){
+  if(e.type==='point_start')for(const pair of e.matchups||[])rememberMatchup(history,...pair);
+  if(e.type==='possession_start')rememberMatchup(history,e.playerId,e.markerId||e.opponentMarkerId);
+  if(e.type==='pass'){rememberMatchup(history,e.throwerId,e.markerId||e.opponentMarkerId);rememberMatchup(history,e.receiverId,e.receiverDefenderId||e.opponentReceiverDefenderId);}
+ }
+ for(const pair of game.defenderPairings||[])rememberMatchup(history,...pair);
+ return history;
+}
+export function rememberDefender(game,receiverId,defenderId){const history=defenderHistory(game);rememberMatchup(history,receiverId,defenderId);game.defenderMatchupHistory=history;}
+export function startingMatchups(game,offense,defenders){
+ const history=defenderHistory(game).reverse(),available=new Set(defenders),pairs=[];
+ for(const receiverId of offense){const pair=history.find(pair=>pair.includes(receiverId)&&pair.some(id=>id!==receiverId&&available.has(id))),defenderId=pair?.find(id=>id!==receiverId&&available.has(id));if(defenderId){pairs.push([receiverId,defenderId]);available.delete(defenderId);}}
+ return pairs;
+}
+// Persist assignments on the point separately from the game's complete matchup history.
+export function recordPointMatchup(game,pointId,{offenseId=null,defenderId,clear=false}){
+ const start=game.events.find(e=>e.id===pointId);if(!start)return;
+ if(offenseId&&defenderId)rememberDefender(game,offenseId,defenderId);
+ const before=pointMatchups(pointsOf(game).find(point=>point.id===pointId)),removed=before.filter(pair=>pair.includes(offenseId)||(!isPlaceholderMatchup(defenderId)&&pair.includes(defenderId)));
+ start.matchups=(start.matchups||[]).filter(pair=>!pair.includes(offenseId)&&!(!isPlaceholderMatchup(defenderId)&&pair.includes(defenderId)));
+ for(const id of removed.flat())if(id&&id!==offenseId&&id!==defenderId&&!isPlaceholderMatchup(id))start.matchups.push([id,null]);
+ start.matchups.push(clear?[offenseId,null]:offenseId?[offenseId,defenderId]:[defenderId,null]);
+}
 // per player: points on offense/defense against how many of those had an assigned matchup (and the 1-based numbers of the points that did not); players of both teams are keyed by their own id
 export function matchupCoverage(game){
  const rows=new Map(),row=id=>{if(!rows.has(id))rows.set(id,{offensePoints:0,offenseAssigned:0,offenseMissing:[],defensePoints:0,defenseAssigned:0,defenseMissing:[]});return rows.get(id);};
