@@ -85,6 +85,8 @@ export function gameState(game){
  const forces={us:null,them:null};for(const e of game.events)if(e.type==='force')forces[e.side]=e.force;
  return {points,point,side,holder,location,marker,needsPickup,forces,score:[points.filter(p=>p.winner==='us').length,points.filter(p=>p.winner==='them').length],active:!!point&&!point.winner,nextStarting:point?.winner==='us'?'D':'O',nextDirection:point?-(point.direction||1):1};
 }
+// a huck is a positioned pass of ours whose downfield gain exceeds the threshold; gain is negative for backward throws
+export function isHuckPass(e,point,huckYards){return e.type==='pass'&&e.side==='us'&&!!e.from&&!!e.to&&passMetrics(e,point).gain>huckYards;}
 export function passMetrics(e,point){
  if(!e.from||!e.to)return {distance:0,gain:0};
  return {distance:Math.hypot(e.to.x-e.from.x,e.to.y-e.from.y),gain:(e.to.x-e.from.x)*(point.direction||1)*(e.side==='them'?-1:1)};
@@ -122,7 +124,7 @@ export function statsFor(teams,games,huckYards=35){
     add(e.throwerId,'passes');
     const targetGender=rows.get(e.receiverId)?.gender,targetPrefix=targetGender==='M'?'male':targetGender==='F'?'female':null;
     if(targetPrefix){add(e.throwerId,targetPrefix+'TargetAttempts');if(complete)add(e.throwerId,targetPrefix+'TargetCompletions');}
-    if(distance>huckYards){add(e.throwerId,'huckAttempts');if(complete)add(e.throwerId,'huckCompletions');}
+    if(isHuckPass(e,p,huckYards)){add(e.throwerId,'huckAttempts');if(complete)add(e.throwerId,'huckCompletions');}
     if(complete){add(e.throwerId,'completions');add(e.receiverId,'catches');add(e.throwerId,'throwDistance',distance);add(e.throwerId,'throwGain',gain);add(e.receiverId,'catchDistance',distance);add(e.receiverId,'catchGain',gain);}
     if(e.outcome==='drop')add(e.receiverId,'drops');
     if(['throwaway','block','stall'].includes(e.outcome))add(e.throwerId,'throwaways');
@@ -240,7 +242,7 @@ export function teamRates(games,huckYards=35){
    defense++;if(point.winner==='us')breaks++;
    if(point.events.some(e=>e.side==='them'&&isTurnover(e)))turns++;
   }
-  for(const e of point.events)if(e.type==='pass'&&e.side==='us'&&passMetrics(e,point).distance>huckYards){
+  for(const e of point.events)if(isHuckPass(e,point,huckYards)){
    huckAttempts++;if(['complete','goal'].includes(e.outcome))huckCompletions++;
   }
  }
