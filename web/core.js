@@ -23,7 +23,7 @@ export function pointsOf(game) {
  return points;
 }
 // Match the throwaway stat: blocked throws and stalls are charged to the thrower too.
-export function playerThrowaways(games,playerId){return games.flatMap(game=>pointsOf(game).flatMap((point,pointIndex)=>point.events.filter(e=>e.side==='us'&&(e.type==='pass'&&e.throwerId===playerId&&['throwaway','block','stall'].includes(e.outcome)||e.type==='turnover'&&e.playerId===playerId&&e.reason==='stall')).map(event=>({game,point,pointIndex,event}))));}
+export function playerThrowaways(games,playerId){return games.flatMap(game=>pointsOf(game).flatMap((point,pointIndex)=>point.events.filter(e=>e.side==='us'&&(e.type==='pass'&&e.throwerId===playerId&&['throwaway','block','stall'].includes(e.outcome)||e.type==='turnover'&&e.playerId===playerId&&['stall','block'].includes(e.reason))).map(event=>({game,point,pointIndex,event}))));}
 export function mirrorGame(game){
  const flip=side=>side==='us'?'them':side==='them'?'us':side,swap=(event,first,second)=>{const firstValue=event[first];event[first]=event[second];event[second]=firstValue;};
  return {...game,events:game.events.map(source=>{const e={...source};if(e.side)e.side=flip(e.side);
@@ -117,7 +117,7 @@ export function statsFor(teams,games,huckYards=35){
   if(pull?.pullerId&&pull.side==='them'){const metrics=pullMetrics(pull,p,game.field);add(pull.pullerId,'pulls');if(metrics.outOfBounds)add(pull.pullerId,'pullsOutOfBounds');else add(pull.pullerId,'pullsInBounds');add(pull.pullerId,'pullVerticalTotal',metrics.outOfBounds?50:metrics.vertical);add(pull.pullerId,'pullHorizontalTotal',metrics.outOfBounds?0:metrics.horizontal);}
   for(const e of p.events){
    if(e.type==='possession_start'){if(e.side==='us')add(e.playerId,'initiated');previousPass=null;}
-   if(e.type==='turnover'){if(e.side==='them')add(e.blockerId,'blocks',e.reason==='block'?1:0);if(e.side==='us'&&e.reason==='stall')add(e.playerId,'throwaways');if(e.side==='them'&&e.callahan)add(e.blockerId,'goals');previousPass=null;}
+   if(e.type==='turnover'){if(e.side==='them')add(e.blockerId,'blocks',e.reason==='block'?1:0);if(e.side==='us'&&['stall','block'].includes(e.reason))add(e.playerId,'throwaways');if(e.side==='them'&&e.callahan)add(e.blockerId,'goals');previousPass=null;}
    if(e.type!=='pass')continue;
    const complete=['complete','goal'].includes(e.outcome), {distance,gain}=passMetrics(e,p);
    if(e.side==='us'){

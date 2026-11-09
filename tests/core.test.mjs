@@ -246,3 +246,12 @@ test('gain per throw and catch uses combined totals, signed forward gain, goals,
  const second=make();start(second);pass(second,{from:{x:80,y:20},to:{x:95,y:20},outcome:'goal'});pass(second,{from:{x:30,y:20},to:{x:50,y:20},outcome:'drop'});pass(second,{throwerId:'p2',receiverId:'p3',outcome:'block'});pass(second,{throwerId:'p4',receiverId:'p5',from:{x:30,y:20},to:{x:20,y:35}});
  const rows=Object.fromEntries(statsFor([team],[first,second]).map(row=>[row.id,row]));assert.equal(rows.p0.throwGainPerThrow,18/4);assert.equal(rows.p1.receiveGainPerCatch,18/2);assert.equal(rows.p4.throwGainPerThrow,-10);assert.equal(rows.p5.receiveGainPerCatch,-10);assert.equal(rows.p2.throwGainPerThrow,0);assert.equal(rows.p2.receiveGainPerCatch,null);assert.equal(rows.p6.throwGainPerThrow,null);assert.equal(rows.p6.receiveGainPerCatch,null);
 });
+test('a block turnover credits the defender and charges the holder a throwaway on either side',()=>{
+ const g=make();g.opponents=[{id:'opp0',name:'Opp 0',number:'0'},{id:'opp1',name:'Opp 1',number:'1'}];
+ g.events.push(event('point_start',{line:team.players.map(p=>p.id),opponentLine:['opp0','opp1'],starting:'D',direction:1}));
+ pickup(g,'them','opp0');g.events.push(event('turnover',{side:'them',reason:'block',playerId:'opp0',blockerId:'p3',location:{x:25,y:20}}));
+ const state=gameState(g);assert.equal(state.side,'us');assert.equal(state.needsPickup,true);assert.deepEqual(state.location,{x:25,y:20});
+ pickup(g,'us','p1');g.events.push(event('turnover',{side:'us',reason:'block',playerId:'p1',blockerId:'opp1',location:{x:25,y:20}}));
+ const ours=stats(g);assert.equal(ours.p3.blocks,1);assert.equal(ours.p1.throwaways,1);
+ const theirs=Object.fromEntries(statsFor([{id:'opponents',players:g.opponents}],[mirrorGame(g)]).map(p=>[p.id,p]));assert.equal(theirs.opp1.blocks,1);assert.equal(theirs.opp0.throwaways,1);
+});
