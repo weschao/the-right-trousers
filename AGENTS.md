@@ -18,6 +18,7 @@ Ultimate frisbee stat tracker. Static web app in `web/` (no framework, minified 
 - `game.defenderMatchupHistory` retains symmetric [player, player] pairs, oldest to newest; recording a pair moves it to the end without discarding other matchups. Legacy games recover history from point matchups, recorded markers/defenders, and `defenderPairings`. Point assignments live in `point_start.matchups` and survive turnovers; new points assign each offensive player their most recent available defender, one-to-one. Selecting lines does not create matchups.
 - `force` events carry the defending side; each pass stores the force in effect and a derived `break` flag (`isBreak` in core.js).
 - The pull is the first `possession_start` of a point; `pullerId` lives on it and distances are derived by `pullMetrics`.
+- Heatmaps (`teamHeatmaps`): the goal-rate and touch maps replace the attacking end zone with an "End zone" label; the turnover and assist maps must show those cells, since many turnovers target the end zone (8 of 14 in one game). Turnovers count our failed passes at `to` plus our `turnover` events at `location`.
 
 ## Stats terminology
 
