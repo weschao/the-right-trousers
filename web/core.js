@@ -3,6 +3,8 @@ export const uid = () => globalThis.crypto.randomUUID();
 export const emptyData = () => ({format:'righttrousers',version:1,teams:[],games:[],sources:[],settings:{secondaryPreviousShare:.3,secondaryPreviousPreviousShare:.1,includeSecondaryInTotal:false}});
 export const event = (type,fields={}) => ({id:uid(),type,at:new Date().toISOString(),...fields});
 export const other = side => side === 'us' ? 'them' : 'us';
+// the pull is the pickup that opens the point; a pickup after a turnover or throw is not the pull
+export const pullEvent = point => { const first = point.events.find(e => ['possession_start','pass','turnover','unattributed_goal'].includes(e.type)); return first?.type === 'possession_start' ? first : undefined; };
 export function playersForGroup(team,groupId){
  if(!groupId||groupId==='all')return team.players;
  const group=(team.groups||[]).find(group=>group.id===groupId),ids=new Set(group?.playerIds||[]);
@@ -115,7 +117,7 @@ export function statsFor(teams,games,huckYards=35){
   const playersOnPoint=[...p.line,...p.events.filter(e=>e.type==='substitution'&&e.side==='us').flatMap(e=>[e.outId,e.inId])];
   for(const id of new Set(playersOnPoint)){add(id,'points');add(id,p.starting==='O'?'oPoints':'dPoints');if(opportunity)add(id,'opportunities');if(defenseOpportunity)add(id,'guardedDefenseOpportunities');if(anyDefenseOpportunity){add(id,'defenseOpportunities');const origin=p.starting==='D'?'D':'O';add(id,`defenseOpportunitiesFrom${origin}`);if(p.winner==='them')add(id,`opponentScoredFrom${origin}`);}}
   let previousPass=null;
-  const pull=p.events.find(e=>e.type==='possession_start');
+  const pull=pullEvent(p);
   if(pull?.pullerId&&pull.side==='them'){const metrics=pullMetrics(pull,p,game.field);add(pull.pullerId,'pulls');if(metrics.outOfBounds)add(pull.pullerId,'pullsOutOfBounds');else add(pull.pullerId,'pullsInBounds');add(pull.pullerId,'pullVerticalTotal',metrics.outOfBounds?50:metrics.vertical);add(pull.pullerId,'pullHorizontalTotal',metrics.outOfBounds?0:metrics.horizontal);}
   for(const e of p.events){
    if(e.type==='possession_start'){if(e.side==='us')add(e.playerId,'initiated');previousPass=null;}
