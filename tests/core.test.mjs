@@ -255,3 +255,4 @@ test('a block turnover credits the defender and charges the holder a throwaway o
  const ours=stats(g);assert.equal(ours.p3.blocks,1);assert.equal(ours.p1.throwaways,1);
  const theirs=Object.fromEntries(statsFor([{id:'opponents',players:g.opponents}],[mirrorGame(g)]).map(p=>[p.id,p]));assert.equal(theirs.opp1.blocks,1);assert.equal(theirs.opp0.throwaways,1);
 });
+test('substituting the disc holder passes the disc to the new player and keeps the marker',()=>{const g=make();start(g,'O');pickup(g,'us','p0');g.events.push(event('substitution',{side:'us',outId:'p0',inId:'p9'}));const s=gameState(g);assert.equal(s.holder,'p9');assert.equal(s.needsPickup,false);});

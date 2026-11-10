@@ -81,6 +81,8 @@ export function gameState(game){
    else {side=other(e.side);holder=null;marker=null;needsPickup=true;}
   }
   if(e.type==='turnover'){side=other(e.side);holder=null;location=e.location||location;marker=null;needsPickup=true;}
+  // a substituted holder is replaced by the incoming player, who keeps the same marker
+  if(e.type==='substitution'&&e.side===side&&holder&&e.outId===holder&&e.inId)holder=e.inId;
  }
  const forces={us:null,them:null};for(const e of game.events)if(e.type==='force')forces[e.side]=e.force;
  return {points,point,side,holder,location,marker,needsPickup,forces,score:[points.filter(p=>p.winner==='us').length,points.filter(p=>p.winner==='them').length],active:!!point&&!point.winner,nextStarting:point?.winner==='us'?'D':'O',nextDirection:point?-(point.direction||1):1};
