@@ -322,7 +322,7 @@ export function matchupBreakdown(game,playerId,side,ose){
  const fieldsFor=offenseSide=>offenseSide==='us'?{marker:'opponentMarkerId',receiverDefender:'opponentReceiverDefenderId'}:{marker:'markerId',receiverDefender:'receiverDefenderId'};
  const offense=new Map(),defense=new Map();
  const offenseRow=id=>{const key=id||null;if(!offense.has(key))offense.set(key,{opponentId:key,pointIds:new Set(),throws:0,completions:0,throwGain:0,turnovers:0,assists:0,breaks:0,targets:0,catches:0,drops:0,goals:0,catchGain:0,edge:0});return offense.get(key);};
- const defenseRow=id=>{const key=id||null;if(!defense.has(key))defense.set(key,{opponentId:key,pointIds:new Set(),throwsMarked:0,completionsAllowed:0,throwGainAllowed:0,throwaways:0,breaksAllowed:0,targets:0,catchesAllowed:0,goalsAllowed:0,catchGainAllowed:0,blocks:0,edgeAllowed:0});return defense.get(key);};
+ const defenseRow=id=>{const key=id||null;if(!defense.has(key))defense.set(key,{opponentId:key,pointIds:new Set(),throwsMarked:0,completionsAllowed:0,throwGainAllowed:0,throwaways:0,breaksAllowed:0,targets:0,catchesAllowed:0,goalsAllowed:0,assistsAllowed:0,catchGainAllowed:0,blocks:0,edgeAllowed:0});return defense.get(key);};
  for(const point of pointsOf(game))for(const e of point.events){
   if(e.type!=='pass')continue;
   const skipEdge=pointExcluded(point),fields=fieldsFor(e.side),marker=e[fields.marker],receiverDefender=e[fields.receiverDefender],{complete,throwValue,receiveValue}=passEdge(e,point,ose,game.field),gain=complete?passMetrics(e,point).gain:0,turnover=['throwaway','block','stall'].includes(e.outcome);
@@ -330,7 +330,7 @@ export function matchupBreakdown(game,playerId,side,ose){
    if(e.throwerId===playerId){const row=offenseRow(marker);if(!skipEdge)row.pointIds.add(point.id);row.throws++;if(complete){row.completions++;row.throwGain+=gain;}if(turnover)row.turnovers++;if(e.outcome==='goal')row.assists++;if(e.break)row.breaks++;row.edge+=skipEdge?0:throwValue;}
    if(e.receiverId===playerId){const row=offenseRow(receiverDefender);if(!skipEdge)row.pointIds.add(point.id);row.targets++;if(complete){row.catches++;row.catchGain+=gain;}if(e.outcome==='drop')row.drops++;if(e.outcome==='goal')row.goals++;row.edge+=skipEdge?0:receiveValue;}
   }else{
-   if(marker===playerId){const row=defenseRow(e.throwerId);if(!skipEdge)row.pointIds.add(point.id);row.throwsMarked++;if(complete){row.completionsAllowed++;row.throwGainAllowed+=gain;}if(turnover)row.throwaways++;if(e.break)row.breaksAllowed++;row.edgeAllowed+=skipEdge?0:throwValue;}
+   if(marker===playerId){const row=defenseRow(e.throwerId);if(!skipEdge)row.pointIds.add(point.id);row.throwsMarked++;if(complete){row.completionsAllowed++;row.throwGainAllowed+=gain;}if(turnover)row.throwaways++;if(e.break)row.breaksAllowed++;if(e.outcome==='goal')row.assistsAllowed++;row.edgeAllowed+=skipEdge?0:throwValue;}
    if(receiverDefender===playerId){const row=defenseRow(e.receiverId);if(!skipEdge)row.pointIds.add(point.id);row.targets++;if(complete){row.catchesAllowed++;row.catchGainAllowed+=gain;}if(e.outcome==='goal')row.goalsAllowed++;row.edgeAllowed+=skipEdge?0:receiveValue;}
    if(e.outcome==='block'&&e.blockerId===playerId){const row=defenseRow(e.handBlock?e.throwerId:e.receiverId);if(!skipEdge)row.pointIds.add(point.id);row.blocks++;}
   }
