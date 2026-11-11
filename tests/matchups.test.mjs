@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {defenderHistory,rememberDefender,startingMatchups,recordPointMatchup,pointMatchups,pointsOf,UNKNOWN_MATCHUP,UNGUARDED} from '../web/core.js';
+import {defenderHistory,rememberDefender,startingMatchups,recordPointMatchup,pointMatchups,matchupCoverage,pointsOf,UNKNOWN_MATCHUP,UNGUARDED} from '../web/core.js';
 const game=()=>({events:[{type:'point_start',id:'point',line:['a','b'],opponentLine:['x','y'],starting:'O'}]});
 test('remembers all matchups, moves repeats to most recent, and survives save/reload',()=>{
  const g=game();
@@ -38,4 +38,14 @@ test('existing games recover history from saved plays and standing pairings',()=
  assert.deepEqual(startingMatchups(g,['a'],['x','y','z']),[['a','z']]);
  assert.deepEqual(startingMatchups(g,['a'],['x','y']),[['a','y']]);
  assert.deepEqual(startingMatchups(g,['x'],['a','b']),[['x','b']]);
+});
+test('a substituted player and their substitute share one matchup slot in coverage',()=>{
+ for(const assignedId of ['a','c']){
+  const g=game();g.events.push({type:'substitution',side:'us',outId:'a',inId:'c'});
+  recordPointMatchup(g,'point',{offenseId:assignedId,defenderId:'x'});
+  const coverage=matchupCoverage(g);
+  assert.deepEqual(coverage.get('a').offenseMissing,[]);
+  assert.deepEqual(coverage.get('c').offenseMissing,[]);
+  assert.deepEqual(coverage.get('b').offenseMissing,[1]);
+ }
 });

@@ -307,7 +307,9 @@ export function matchupCoverage(game){
  for(const [pointIndex,point] of pointsOf(game).entries()){
   const assigned=new Set(pointMatchups(point).flat());
   for(const [side,line] of [['us',point.line],['them',point.opponentLine]]){
-   const roles=sideRoles(point,side),substitutions=point.events.filter(e=>e.type==='substitution'&&e.side===side).flatMap(e=>[e.outId,e.inId]);
+   const roles=sideRoles(point,side),substitutionEvents=point.events.filter(e=>e.type==='substitution'&&e.side===side),substitutions=substitutionEvents.flatMap(e=>[e.outId,e.inId]);
+   // a player and their substitute share one slot in the point's one-to-one matchups, so assigning either covers both
+   for(const e of substitutionEvents)if(e.outId&&e.inId&&(assigned.has(e.outId)||assigned.has(e.inId))){assigned.add(e.outId);assigned.add(e.inId);}
    for(const id of new Set([...line,...substitutions].filter(Boolean))){
     const counts=row(id);
     if(roles.offense){counts.offensePoints++;if(assigned.has(id))counts.offenseAssigned++;else counts.offenseMissing.push(pointIndex+1);}
