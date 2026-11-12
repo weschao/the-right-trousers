@@ -42,6 +42,7 @@ export function playerOccurrences(games,playerId,huckYards=35){
  return result;
 }
 
+// edge is the selected player's own share of each pass (receiveValue when receiving, throwValue when throwing), never both sides summed
 // teammates on the other end of this player's passes: 'received' groups passes thrown to the player by thrower, 'thrown' groups the player's passes by receiver
 export function connectionStats(games,playerId,direction,oseFor){
  const rows=new Map(),totalThrows=new Map(),throwsToPlayer=new Map(),bump=(map,id)=>map.set(id,(map.get(id)||0)+1);
@@ -62,7 +63,7 @@ export function connectionStats(games,playerId,direction,oseFor){
     if(event.outcome==='goal')row.goals++;
     if(lostOutcomes.includes(event.outcome))row.throwaways++;
     if(event.outcome==='drop')row.drops++;
-    row.edge+=throwValue+receiveValue;
+    row.edge+=direction==='received'?receiveValue:throwValue;
    }
   }
  }
