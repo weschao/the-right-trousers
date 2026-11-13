@@ -1,4 +1,4 @@
-import {FIELD,pullEvent,uid,startingMatchups,rememberDefender,recordPointMatchup,playerThrowaways,mirrorGame,UNGUARDED,UNGUARDED_VERSION,UNKNOWN_MATCHUP,isPlaceholderMatchup,applyUnguarded,recomputeBreaks,setPointDirection,matchupBreakdowns,playersWhoPlayed,pointEdgeRows,matchupCoverage,pointMatchups,pullMetrics,FORCES,isBreak,emptyData,event,other,pointsOf,gameState,passMetrics,isHuckPass,statsFor,advancedStatsFor,offensiveScoringEfficiency,teamRates,throwsPerPossession,scoringByCompletions,goalRegression,STAT_COLUMNS,validateData,mergeData,playersForGroup,lineSlots,gamesForTeam,gamesFromEverySide} from './core.js';
+import {FIELD,pullEvent,uid,startingMatchups,rememberDefender,recordPointMatchup,playerThrowaways,mirrorGame,UNGUARDED,UNGUARDED_VERSION,UNKNOWN_MATCHUP,isPlaceholderMatchup,applyUnguarded,clearBlankPlayerIds,recomputeBreaks,setPointDirection,matchupBreakdowns,playersWhoPlayed,pointEdgeRows,matchupCoverage,pointMatchups,pullMetrics,FORCES,isBreak,emptyData,event,other,pointsOf,gameState,passMetrics,isHuckPass,statsFor,advancedStatsFor,offensiveScoringEfficiency,teamRates,throwsPerPossession,scoringByCompletions,goalRegression,STAT_COLUMNS,validateData,mergeData,playersForGroup,lineSlots,gamesForTeam,gamesFromEverySide} from './core.js';
 import {readStattoZip,convertStatto} from './statto.js';
 import {readStore,writeStore} from './storage.js';
 import {timestampSeconds,videoSource,youtubeTimestamps,veoTimestamps,pointVideos,importedPointTimestamps,loadYoutubeDescription,timestampLink,linkTimestamp} from './video.js';
@@ -503,7 +503,7 @@ const actions={'toggle-sidebar':toggleSidebar,'unattributed-goal':unattributedGo
 $('#import-file').onchange=e=>{importFile(e.target.files[0]);e.target.value='';};
 try{data=await readStore()||emptyData();validateData(data);}catch(e){saveLabel='Storage unavailable';toast('Could not read local storage. Import a JSON backup if needed.');}
 if(!data.teams.length){try{const r=await fetch('./initial-data.json');if(r.ok){data=validateData(await r.json());await persist();}}catch{}}
-{const pending=data.games.filter(game=>game.unguardedApplied!==UNGUARDED_VERSION).length,changed=data.games.map(game=>[applyUnguarded(game),recomputeBreaks(game)].some(Boolean)).some(Boolean);if(pending||changed)await persist();}
+{const pending=data.games.filter(game=>game.unguardedApplied!==UNGUARDED_VERSION).length,changed=data.games.map(game=>[clearBlankPlayerIds(game),applyUnguarded(game),recomputeBreaks(game)].some(Boolean)).some(Boolean);if(pending||changed)await persist();}
 render();
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&view==='game'&&!$('#modal').open){gameId=null;view='games';render();}if(e.key==='Escape'&&view==='player'&&!$('#modal').open)closePlayerPage();});
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});

@@ -420,6 +420,12 @@ export function validateData(data){
 // - a throw following an unguarded receiver's defender, with no marker, gets an unguarded marker
 // unguardedApplied is the version run (true = 1, before the receiver's-defender rules); a game is upgraded once, so a defender left blank later stays unknown
 export const UNGUARDED_VERSION=2;
+// Statto imports before 2026-11-12 stored a missing player as {}; any *Id field holding an object becomes null
+export function clearBlankPlayerIds(game){
+ let changed=false;
+ for(const e of game.events)for(const [key,value] of Object.entries(e))if(key.endsWith('Id')&&value!==null&&typeof value==='object'&&!Array.isArray(value)){e[key]=null;changed=true;}
+ return changed;
+}
 export function applyUnguarded(game){
  const appliedVersion=game.unguardedApplied===true?1:game.unguardedApplied||0;
  let changed=clearUnguardedBreaks(game);
@@ -452,7 +458,7 @@ function clearUnguardedBreaks(game){
 export function mergeData(current,incoming){
  validateData(incoming);const next=structuredClone(current);let added=0,skipped=0;
  for(const t of incoming.teams){const existing=next.teams.find(x=>x.id===t.id);if(!existing)next.teams.push(t);else{for(const p of t.players){const known=existing.players.find(x=>x.id===p.id);if(!known)existing.players.push(p);else for(const field of ['number','gender'])if(!known[field]&&p[field])known[field]=p[field];}existing.groups??=[];for(const group of t.groups||[])if(!existing.groups.some(x=>x.id===group.id))existing.groups.push(group);if(existing.rating==null&&t.rating!=null)existing.rating=t.rating;}}
- for(const g of incoming.games){const existing=next.games.find(x=>x.id===g.id);if(existing){skipped++;if(!existing.tournament&&g.tournament)existing.tournament=g.tournament;if(existing.opponentRating==null&&g.opponentRating!=null)existing.opponentRating=g.opponentRating;}else{applyUnguarded(g);next.games.push(g);added++;}}
+ for(const g of incoming.games){const existing=next.games.find(x=>x.id===g.id);if(existing){skipped++;if(!existing.tournament&&g.tournament)existing.tournament=g.tournament;if(existing.opponentRating==null&&g.opponentRating!=null)existing.opponentRating=g.opponentRating;}else{clearBlankPlayerIds(g);applyUnguarded(g);next.games.push(g);added++;}}
  for(const source of incoming.sources||[])if(!next.sources.some(s=>s.id===source.id))next.sources.push(source);
  return {data:next,added,skipped};
 }
