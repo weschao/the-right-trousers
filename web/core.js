@@ -24,6 +24,8 @@ export function pointsOf(game) {
  }
  return points;
 }
+// who is on the field for one side just before an event (or at the end of the point with no event): the starting line with the substitutions before it applied, as pointsOf applies them
+export function lineAtEvent(game,point,side,eventId){const start=game.events.find(e=>e.id===point.id),ids=[...((side==='us'?start.line:start.opponentLine)||[])];for(const e of point.events){if(e.id===eventId)break;if(e.type==='substitution'&&e.side===side&&e.inId&&!ids.includes(e.inId)){const index=ids.indexOf(e.outId);if(index>=0)ids[index]=e.inId;else if(ids.length<7)ids.push(e.inId);}}return ids;}
 // Match the throwaway stat: blocked throws and stalls are charged to the thrower too.
 export function playerThrowaways(games,playerId){return games.flatMap(game=>pointsOf(game).flatMap((point,pointIndex)=>point.events.filter(e=>e.side==='us'&&(e.type==='pass'&&e.throwerId===playerId&&['throwaway','block','stall'].includes(e.outcome)||e.type==='turnover'&&e.playerId===playerId&&['stall','block'].includes(e.reason))).map(event=>({game,point,pointIndex,event}))));}
 export function mirrorGame(game){
