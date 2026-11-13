@@ -44,28 +44,35 @@ export function playerOccurrences(games,playerId,huckYards=35){
 
 // edge is the selected player's own share of each pass (receiveValue when receiving, throwValue when throwing), never both sides summed
 // teammates on the other end of this player's passes: 'received' groups passes thrown to the player by thrower, 'thrown' groups the player's passes by receiver
+// passes with no known partner (null, or the {} some Statto imports carry) share one row with id null; every row lists its passes with the score at the start of their point
 export function connectionStats(games,playerId,direction,oseFor){
- const rows=new Map(),totalThrows=new Map(),throwsToPlayer=new Map(),bump=(map,id)=>map.set(id,(map.get(id)||0)+1);
+ const rows=new Map(),totalThrows=new Map(),throwsToPlayer=new Map(),bump=(map,id)=>map.set(id,(map.get(id)||0)+1),known=id=>typeof id==='string'&&id?id:null;
  for(const game of games){
-  const ose=oseFor(game);
-  for(const point of pointsOf(game)){
-   if(pointExcluded(point))continue;
+  const ose=oseFor(game),score=[0,0];
+  pointsOf(game).forEach((point,pointIndex)=>{
+   const scoreBefore=`${score[0]}-${score[1]}`;
+   if(point.winner==='us')score[0]++;
+   if(point.winner==='them')score[1]++;
+   if(pointExcluded(point))return;
    for(const event of point.events){
     if(event.type!=='pass'||event.side!=='us')continue;
+    const thrower=known(event.throwerId),receiver=known(event.receiverId);
     // throw share: 'received' is each thrower's throws aimed at the selected player; 'thrown' is the selected player's throws aimed at each target
-    if(event.throwerId){bump(totalThrows,event.throwerId);if(event.receiverId===playerId)bump(throwsToPlayer,event.throwerId);}
-    const [self,partner]=direction==='received'?[event.receiverId,event.throwerId]:[event.throwerId,event.receiverId];
-    if(self!==playerId||!partner||partner===playerId)continue;
-    if(!rows.has(partner))rows.set(partner,{id:partner,throws:0,completions:0,goals:0,throwaways:0,drops:0,throwDistance:0,throwGain:0,edge:0});
+    if(thrower){bump(totalThrows,thrower);if(receiver===playerId)bump(throwsToPlayer,thrower);}
+    const [self,partner]=direction==='received'?[receiver,thrower]:[thrower,receiver];
+    if(self!==playerId||partner===playerId)continue;
+    if(!rows.has(partner))rows.set(partner,{id:partner,throws:0,completions:0,goals:0,throwaways:0,drops:0,throwDistance:0,throwGain:0,edge:0,passes:[]});
     const row=rows.get(partner),complete=['complete','goal'].includes(event.outcome),{distance,gain}=passMetrics(event,point),{throwValue,receiveValue}=passEdge(event,point,ose,game.field);
     row.throws++;
+    row.passes.push({game,point,pointIndex,event,scoreBefore});
     if(complete){row.completions++;row.throwDistance+=distance;row.throwGain+=gain;}
     if(event.outcome==='goal')row.goals++;
     if(lostOutcomes.includes(event.outcome))row.throwaways++;
     if(event.outcome==='drop')row.drops++;
     row.edge+=direction==='received'?receiveValue:throwValue;
    }
-  }
+  });
  }
- return [...rows.values()].map(row=>({...row,completionRate:row.completions/row.throws,throwShare:direction==='received'?(throwsToPlayer.get(row.id)||0)/totalThrows.get(row.id):row.throws/totalThrows.get(playerId),edgePerThrow:row.edge/row.throws}));
+ // an unknown thrower has no throw total, so its share of throws is undefined (null)
+ return [...rows.values()].map(row=>({...row,completionRate:row.completions/row.throws,throwShare:direction==='received'?(row.id===null?null:(throwsToPlayer.get(row.id)||0)/totalThrows.get(row.id)):row.throws/totalThrows.get(playerId),edgePerThrow:row.edge/row.throws}));
 }
