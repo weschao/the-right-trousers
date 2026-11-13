@@ -462,3 +462,20 @@ export function mergeData(current,incoming){
  for(const source of incoming.sources||[])if(!next.sources.some(s=>s.id===source.id))next.sources.push(source);
  return {data:next,added,skipped};
 }
+
+// moves a catch or a possession start; later events in the point that sat on the old spot (the next throw's origin, a stall, a turnover) move with it
+export function moveEventLocation(game,id,to){
+ const index=game.events.findIndex(e=>e.id===id),moved=game.events[index],isCatch=moved?.type==='pass'&&['complete','goal'].includes(moved.outcome);
+ if(!isCatch&&moved?.type!=='possession_start')throw new Error(`event ${id} is not a catch or possession start`);
+ const key=isCatch?'to':'location',old=moved[key],spot=()=>({x:to.x,y:to.y}),atOld=place=>!!place&&!!old&&place.x===old.x&&place.y===old.y,changed=[moved];
+ moved[key]=spot();
+ for(const e of game.events.slice(index+1)){
+  if(['point_start','point_end','possession_start'].includes(e.type))break;
+  let touched=false;for(const field of ['from','to','location'])if(atOld(e[field])){e[field]=spot();touched=true;}
+  if(touched)changed.push(e);
+  if(e.type==='pass'&&!(e.to&&e.to.x===to.x&&e.to.y===to.y))break;
+ }
+ const point=pointsOf(game).find(p=>p.events.some(e=>e.id===id));
+ for(const e of changed)if(e.type==='pass')e.break=isBreak(e,point,game.field);
+ return changed;
+}
