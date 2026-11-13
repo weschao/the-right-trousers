@@ -45,6 +45,20 @@ export function playerOccurrences(games,playerId,huckYards=35){
 // edge is the selected player's own share of each pass (receiveValue when receiving, throwValue when throwing), never both sides summed
 // teammates on the other end of this player's passes: 'received' groups passes thrown to the player by thrower, 'thrown' groups the player's passes by receiver
 // passes with no known partner (null, or the {} some Statto imports carry) share one row with id null; every row lists its passes with the score at the start of their point
+// ids of our players with a pass to or from an unknown teammate, counted the same way as the player page's Unknown connection rows
+export function unknownPassPlayers(games){
+ const found={},known=id=>typeof id==='string'&&id?id:null;
+ for(const game of games)for(const point of pointsOf(game)){
+  if(pointExcluded(point))continue;
+  for(const event of point.events){
+   if(event.type!=='pass'||event.side!=='us')continue;
+   const thrower=known(event.throwerId),receiver=known(event.receiverId);
+   if(thrower&&!receiver)found[thrower]=true;
+   if(receiver&&!thrower)found[receiver]=true;
+  }
+ }
+ return found;
+}
 export function connectionStats(games,playerId,direction,oseFor){
  const rows=new Map(),totalThrows=new Map(),throwsToPlayer=new Map(),bump=(map,id)=>map.set(id,(map.get(id)||0)+1),known=id=>typeof id==='string'&&id?id:null;
  for(const game of games){

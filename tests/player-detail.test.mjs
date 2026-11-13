@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {statsFor,FIELD,opponentPerspective} from '../web/core.js';
-import {playerOccurrences,connectionStats} from '../web/player-detail.js';
+import {playerOccurrences,connectionStats,unknownPassPlayers} from '../web/player-detail.js';
 import {timestampLink,linkTimestamp,pointVideos} from '../web/video.js';
 const teams=[{id:'a',name:'Us',players:[{id:'ann',name:'Ann'},{id:'bo',name:'Bo'}]},{id:'b',name:'Them',players:[{id:'opp',name:'Opp'}]}];
 const pass=(id,outcome,throwerId,receiverId,to={x:30,y:20},side='us')=>({id,type:'pass',side,throwerId,receiverId,outcome,from:{x:20,y:20},to});
@@ -38,3 +38,4 @@ test('removing a player nulls their event ids and drops them from lines, matchup
  assert.equal(game.events.find(e=>e.id==='goal').throwerId,null);assert.equal(game.events.find(e=>e.id==='goal').receiverId,'bo');assert.equal(game.events.find(e=>e.id==='sub').inId,null);
  assert.deepEqual(statsFor([{...teams[0],players:[teams[0].players[1]]},teams[1]],[game]).map(row=>row.id),['bo','opp']);
  removePlayerFromGame(game,'opp');assert.deepEqual(game.opponents,[]);assert.deepEqual(game.events[0].opponentLine,[]);});
+test('unknown-pass players are exactly those with an Unknown connection row, our side only',()=>{const game=make();assert.deepEqual(unknownPassPlayers([game]),{});game.events.splice(2,0,pass('to-null','complete','ann',null),pass('opp-null','complete','opp',null,undefined,'them'));const found=unknownPassPlayers([game]);assert.deepEqual(found,{ann:true});for(const id of ['ann','bo'])assert.equal(!!found[id],['thrown','received'].some(direction=>connectionStats([game],id,direction,()=>.56).some(row=>row.id===null)));game.events.splice(2,0,pass('from-null','complete',null,'bo'));assert.deepEqual(unknownPassPlayers([game]),{ann:true,bo:true});});

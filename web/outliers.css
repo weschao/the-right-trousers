@@ -59,6 +59,7 @@
 .quick-player.unknown{border-style:dotted}
 .stats-table td.stat-name.unknown-matchup{background:#cfe3ff!important}
 .stats-table td.stat-name.matchup-gap.unknown-matchup{background:linear-gradient(90deg,#ffe08a 50%,#cfe3ff 50%)!important}
+.stats-table td.stat-name.unknown-pass{background:#e3d4ff!important}
 .breakdown-points{display:block;font-weight:400;color:var(--muted)}
 .stats-team-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 
