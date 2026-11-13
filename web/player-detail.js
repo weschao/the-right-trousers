@@ -26,7 +26,7 @@ export function playerOccurrences(games,playerId,huckYards=35){
     const complete=['complete','goal'].includes(event.outcome);
     if(event.throwerId===playerId){
      if(event.outcome==='goal')result.assists.push(row(event,{preposition:'to',otherId:event.receiverId}));
-     if(lostOutcomes.includes(event.outcome))result.throwaways.push(row(event,{preposition:'to',otherId:event.receiverId,note:event.outcome==='throwaway'?'':event.outcome==='stall'?'Stalled':'Blocked'}));
+     if(lostOutcomes.includes(event.outcome))result.throwaways.push(row(event,{...(event.outcome==='stall'?{}:{preposition:'to',otherId:event.receiverId}),note:event.outcome==='throwaway'?'':event.outcome==='stall'?'Stalled':'Blocked'}));
      if(isHuckPass(event,point,huckYards))result.hucks.push(row(event,{preposition:'to',otherId:event.receiverId,note:complete?'Completed':'Incomplete'}));
     }
     if(event.receiverId===playerId){
@@ -51,7 +51,7 @@ export function unknownPassPlayers(games){
  for(const game of games)for(const point of pointsOf(game)){
   if(pointExcluded(point))continue;
   for(const event of point.events){
-   if(event.type!=='pass'||event.side!=='us')continue;
+   if(event.type!=='pass'||event.side!=='us'||event.outcome==='stall')continue;
    const thrower=known(event.throwerId),receiver=known(event.receiverId);
    if(thrower&&!receiver)found[thrower]=true;
    if(receiver&&!thrower)found[receiver]=true;
@@ -69,7 +69,8 @@ export function connectionStats(games,playerId,direction,oseFor){
    if(point.winner==='them')score[1]++;
    if(pointExcluded(point))return;
    for(const event of point.events){
-    if(event.type!=='pass'||event.side!=='us')continue;
+    // a stall is not a throw to anyone, so it has no partner and no place in these rows
+    if(event.type!=='pass'||event.side!=='us'||event.outcome==='stall')continue;
     const thrower=known(event.throwerId),receiver=known(event.receiverId);
     // throw share: 'received' is each thrower's throws aimed at the selected player; 'thrown' is the selected player's throws aimed at each target
     if(thrower){bump(totalThrows,thrower);if(receiver===playerId)bump(throwsToPlayer,thrower);}
