@@ -31,3 +31,10 @@ test('passes with no known partner share one null row listing each pass with the
  assert.equal(thrown.filter(r=>r.id===null).length,1);assert.equal(unknownTarget.throws,2);assert.deepEqual(unknownTarget.passes.map(p=>[p.event.id,p.scoreBefore,p.game.id]),[['to-blank','1-0','g'],['to-null','1-0','g']]);assert.equal(unknownTarget.throwShare,2/5);
  assert.equal(unknownThrower.throws,1);assert.equal(unknownThrower.passes[0].event.id,'from-blank');assert.equal(unknownThrower.throwShare,null);
  assert.deepEqual(thrown.find(r=>r.id==='bo').passes.map(p=>p.scoreBefore),['0-0','0-0','0-0']);});
+test('removing a player nulls their event ids and drops them from lines, matchups and the opponent roster',async()=>{const {removePlayerFromGame}=await import('../web/core.js'),game=make();
+ game.events[0].matchups=[['ann','opp'],['bo',null]];game.defenderMatchupHistory=[['ann','opp'],['bo','opp']];game.defenderPairings=[['ann','opp']];game.events.splice(1,0,{id:'sub',type:'substitution',side:'us',outId:'bo',inId:'ann'});
+ removePlayerFromGame(game,'ann');
+ assert.ok(!JSON.stringify(game.events).includes('"ann"'));assert.deepEqual(game.events[0].line,['bo']);assert.deepEqual(game.events[0].matchups,[['bo',null]]);assert.deepEqual(game.defenderMatchupHistory,[['bo','opp']]);assert.deepEqual(game.defenderPairings,[]);
+ assert.equal(game.events.find(e=>e.id==='goal').throwerId,null);assert.equal(game.events.find(e=>e.id==='goal').receiverId,'bo');assert.equal(game.events.find(e=>e.id==='sub').inId,null);
+ assert.deepEqual(statsFor([{...teams[0],players:[teams[0].players[1]]},teams[1]],[game]).map(row=>row.id),['bo','opp']);
+ removePlayerFromGame(game,'opp');assert.deepEqual(game.opponents,[]);assert.deepEqual(game.events[0].opponentLine,[]);});

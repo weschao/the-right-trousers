@@ -426,6 +426,18 @@ export function clearBlankPlayerIds(game){
  for(const e of game.events)for(const [key,value] of Object.entries(e))if(key.endsWith('Id')&&value!==null&&typeof value==='object'&&!Array.isArray(value)){e[key]=null;changed=true;}
  return changed;
 }
+// deleting a player: drop them from lines, matchups and the opponent roster, and turn every *Id field naming them into null (recorded as an unknown player)
+export function removePlayerFromGame(game,playerId){
+ const withoutPlayer=pairs=>pairs.filter(pair=>!pair.includes(playerId));
+ for(const e of game.events){
+  for(const [key,value] of Object.entries(e))if(key.endsWith('Id')&&value===playerId)e[key]=null;
+  for(const key of ['line','opponentLine'])if(Array.isArray(e[key]))e[key]=e[key].filter(id=>id!==playerId);
+  if(Array.isArray(e.matchups))e.matchups=withoutPlayer(e.matchups);
+ }
+ if(game.opponents)game.opponents=game.opponents.filter(player=>player.id!==playerId);
+ if(game.defenderMatchupHistory)game.defenderMatchupHistory=withoutPlayer(game.defenderMatchupHistory);
+ if(game.defenderPairings)game.defenderPairings=withoutPlayer(game.defenderPairings);
+}
 export function applyUnguarded(game){
  const appliedVersion=game.unguardedApplied===true?1:game.unguardedApplied||0;
  let changed=clearUnguardedBreaks(game);
