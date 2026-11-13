@@ -1,6 +1,8 @@
 import {emptyData,FIELD,validateData} from './core.js';
 const sorted=a=>[...(a||[])].sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||''));
 const string=v=>typeof v==='string'?v:'';
+// some Statto exports write a missing player as {} rather than leaving it out
+const uuid=v=>typeof v==='string'&&v?v:null;
 // Read the ZIP central directory; accept only the requested JSON member, never extract paths.
 export async function readStattoZip(buffer){
  const v=new DataView(buffer), bytes=new Uint8Array(buffer);let end=-1;
@@ -50,11 +52,11 @@ export function convertStatto(raw,{length=110,width=40}={}){
     for(const stall of (r.stallOutsAgainst||[]).filter(s=>possessionById.get(s.possessionUUID)?.pointUUID===p.uuid))records.push({...stall,_type:'stall'});
     for(const rec of sorted(records)){
      let e;
-     if(rec._type==='possession_start')e=base(rec,'possession_start',{side:'us',playerId:rec.initiatorUUID||null,location:location(rec.startX,rec.startY),markerId:null});
-     if(rec._type==='pass')e=base(rec,'pass',{side:'us',throwerId:rec.throwerUUID||null,receiverId:rec.receiverUUID||null,from:location(rec.startX,rec.startY),to:location(rec.endX,rec.endY),outcome:rec.isAssist?'goal':rec.isReceiverError?'drop':rec.isThrowerError?'throwaway':'complete',markerId:null,receiverDefenderId:null,blockerId:null,sourcePossessionId:rec.possessionUUID,sourceSecondaryAssist:rec.isSecondaryAssist});
-     if(rec._type==='block')e=base(rec,'turnover',{side:'them',reason:rec.isStallOut?'stall':'block',blockerId:rec.playerUUID||null,location:location(rec.locationX,rec.locationY),callahan:!!rec.isCallahan});
+     if(rec._type==='possession_start')e=base(rec,'possession_start',{side:'us',playerId:uuid(rec.initiatorUUID),location:location(rec.startX,rec.startY),markerId:null});
+     if(rec._type==='pass')e=base(rec,'pass',{side:'us',throwerId:uuid(rec.throwerUUID),receiverId:uuid(rec.receiverUUID),from:location(rec.startX,rec.startY),to:location(rec.endX,rec.endY),outcome:rec.isAssist?'goal':rec.isReceiverError?'drop':rec.isThrowerError?'throwaway':'complete',markerId:null,receiverDefenderId:null,blockerId:null,sourcePossessionId:rec.possessionUUID,sourceSecondaryAssist:rec.isSecondaryAssist});
+     if(rec._type==='block')e=base(rec,'turnover',{side:'them',reason:rec.isStallOut?'stall':'block',blockerId:uuid(rec.playerUUID),location:location(rec.locationX,rec.locationY),callahan:!!rec.isCallahan});
      if(rec._type==='opponent_error')e=base(rec,'turnover',{side:'them',reason:'opponent_error'});
-     if(rec._type==='stall')e=base(rec,'turnover',{side:'us',reason:'stall',playerId:rec.playerUUID,location:location(rec.locationX,rec.locationY)});
+     if(rec._type==='stall')e=base(rec,'turnover',{side:'us',reason:'stall',playerId:uuid(rec.playerUUID),location:location(rec.locationX,rec.locationY)});
      if(e)game.events.push(e);
     }
     if(p.result===1||p.result===-1)game.events.push({id:'statto:result:'+p.uuid,type:'point_end',at:game.events.at(-1).at,winner:p.result===1?'us':'them'});
