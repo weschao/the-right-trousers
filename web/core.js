@@ -105,17 +105,19 @@ export function pullMetrics(possession,point,field){
 export const STAT_COLUMNS = [
  ['points','Pts'],['oPoints','O pts'],['dPoints','D pts'],['opportunities','O opp'],['defenseOpportunities','D opp'],['passes','Throws'],['completions','Comp'],['completionRate','Completion rate'],['catches','Catch'],['initiated','Poss init'],['goals','Goals'],['assists','Ast'],['secondaryAssists','2nd ast'],['throwaways','Throwaways'],['drops','Drops'],['assistThrowawayRatio','Ast/TA'],['throwawaysPerTouch','TA/100 touches'],['blocks','Blocks'],['throwDistance','Throw yd'],['throwGain','Throw gain'],['throwGainPerThrow','Throw gain/throw'],['catchDistance','Catch yd'],['catchGain','Catch gain'],['receiveGainPerCatch','Receive gain/catch'],['throwAllowed','Throw yd allowed'],['receiveAllowed','Catch yd allowed'],['goalsAllowed','Goals allowed'],['assistsAllowed','Ast allowed'],['targets','Targets'],['forcedThrowaways','Forced TA'],['breaks','Breaks'],['breaksAllowed','Breaks allowed'],['pulls','Pulls'],['pullsOutOfBounds','Pulls OB'],['pullVertical','Pull depth'],['pullHorizontal','Pull side offset']
 ];
+// our players who were on the field for a point: its starting line plus everyone subbed in or out
+export function pointPlayers(point){return new Set([...point.line,...point.events.filter(e=>e.type==='substitution'&&e.side==='us').flatMap(e=>[e.outId,e.inId])]);}
+// ids of our players who played at least one point of the game (statsFor gives them points > 0)
+export function playersWhoPlayed(game){const played=new Set();for(const point of pointsOf(game))for(const id of pointPlayers(point))if(id&&id!==UNGUARDED)played.add(id);return played;}
 export function statsFor(teams,games,huckYards=35){
  const rows=new Map();
  const row=id=>{if(!id||id===UNGUARDED)return null;if(!rows.has(id))rows.set(id,{id,name:'Unknown player',number:'',maleTargetAttempts:0,maleTargetCompletions:0,femaleTargetAttempts:0,femaleTargetCompletions:0,maleTargetCompletionRate:null,femaleTargetCompletionRate:null,huckAttempts:0,huckCompletions:0,huckCompletionRate:0,guardedDefenseOpportunities:0,defenseOpportunitiesFromD:0,defenseOpportunitiesFromO:0,opponentScoredFromD:0,opponentScoredFromO:0,pullsInBounds:0,pullVerticalTotal:0,pullHorizontalTotal:0,...Object.fromEntries(STAT_COLUMNS.map(([k])=>[k,0]))});return rows.get(id);};
  for(const t of teams)for(const p of t.players)Object.assign(row(p.id),{name:p.name,number:p.number,gender:p.gender||''});
  const add=(id,key,value=1)=>{const r=row(id);if(r)r[key]+=value;};
  for(const game of games)for(const p of pointsOf(game)){
-  let opportunity=p.starting==='O';
-  for(const e of p.events)if((e.type==='possession_start'&&e.side==='us')||(e.side==='them'&&((e.type==='pass'&&!['complete','goal'].includes(e.outcome))||e.type==='turnover')))opportunity=true;
+  const opportunity=pointHasOpportunity(p);
   const anyDefenseOpportunity=p.starting==='D'||p.events.some(e=>e.side==='us'&&(e.type==='turnover'||(e.type==='pass'&&!['complete','goal'].includes(e.outcome)))),defenseOpportunity=anyDefenseOpportunity&&p.events.some(e=>e.type==='pass'&&e.side==='them'&&[e.markerId,e.receiverDefenderId].some(id=>id&&id!==UNGUARDED));
-  const playersOnPoint=[...p.line,...p.events.filter(e=>e.type==='substitution'&&e.side==='us').flatMap(e=>[e.outId,e.inId])];
-  for(const id of new Set(playersOnPoint)){add(id,'points');add(id,p.starting==='O'?'oPoints':'dPoints');if(opportunity)add(id,'opportunities');if(defenseOpportunity)add(id,'guardedDefenseOpportunities');if(anyDefenseOpportunity){add(id,'defenseOpportunities');const origin=p.starting==='D'?'D':'O';add(id,`defenseOpportunitiesFrom${origin}`);if(p.winner==='them')add(id,`opponentScoredFrom${origin}`);}}
+  for(const id of pointPlayers(p)){add(id,'points');add(id,p.starting==='O'?'oPoints':'dPoints');if(opportunity)add(id,'opportunities');if(defenseOpportunity)add(id,'guardedDefenseOpportunities');if(anyDefenseOpportunity){add(id,'defenseOpportunities');const origin=p.starting==='D'?'D':'O';add(id,`defenseOpportunitiesFrom${origin}`);if(p.winner==='them')add(id,`opponentScoredFrom${origin}`);}}
   let previousPass=null;
   const pull=pullEvent(p);
   if(pull?.pullerId&&pull.side==='them'){const metrics=pullMetrics(pull,p,game.field);add(pull.pullerId,'pulls');if(metrics.outOfBounds)add(pull.pullerId,'pullsOutOfBounds');else add(pull.pullerId,'pullsInBounds');add(pull.pullerId,'pullVerticalTotal',metrics.outOfBounds?50:metrics.vertical);add(pull.pullerId,'pullHorizontalTotal',metrics.outOfBounds?0:metrics.horizontal);}
@@ -320,51 +322,52 @@ export function matchupCoverage(game){
  return rows;
 }
 // one player's passes split by who guarded them (offense) and by whom they guarded (defense); side is the player's team in this game
-export function matchupBreakdown(game,playerId,side,ose){
+export function matchupBreakdown(game,playerId,side,ose){return matchupBreakdowns(game,side,ose,[playerId]).get(playerId)||{offense:[],defense:[]};}
+// matchupBreakdown for many players in one pass over the game; playerIds limits the players tracked (null tracks everyone), keyed by player id
+export function matchupBreakdowns(game,side,ose,playerIds=null){
  const fieldsFor=offenseSide=>offenseSide==='us'?{marker:'opponentMarkerId',receiverDefender:'opponentReceiverDefenderId'}:{marker:'markerId',receiverDefender:'receiverDefenderId'};
- const offense=new Map(),defense=new Map();
- const offenseRow=id=>{const key=id||null;if(!offense.has(key))offense.set(key,{opponentId:key,pointIds:new Set(),throws:0,completions:0,throwGain:0,turnovers:0,assists:0,breaks:0,targets:0,catches:0,drops:0,goals:0,catchGain:0,edge:0});return offense.get(key);};
- const defenseRow=id=>{const key=id||null;if(!defense.has(key))defense.set(key,{opponentId:key,pointIds:new Set(),throwsMarked:0,completionsAllowed:0,throwGainAllowed:0,throwaways:0,breaksAllowed:0,targets:0,catchesAllowed:0,goalsAllowed:0,assistsAllowed:0,catchGainAllowed:0,blocks:0,edgeAllowed:0});return defense.get(key);};
- for(const point of pointsOf(game))for(const e of point.events){
+ const tracked=playerIds&&new Set(playerIds),wanted=id=>!!id&&(!tracked||tracked.has(id)),players=new Map();
+ const tablesOf=id=>{if(!players.has(id))players.set(id,{offense:new Map(),defense:new Map()});return players.get(id);};
+ const offenseRow=(playerId,id)=>{const offense=tablesOf(playerId).offense,key=id||null;if(!offense.has(key))offense.set(key,{opponentId:key,pointIds:new Set(),throws:0,completions:0,throwGain:0,turnovers:0,assists:0,breaks:0,targets:0,catches:0,drops:0,goals:0,catchGain:0,edge:0});return offense.get(key);};
+ const defenseRow=(playerId,id)=>{const defense=tablesOf(playerId).defense,key=id||null;if(!defense.has(key))defense.set(key,{opponentId:key,pointIds:new Set(),throwsMarked:0,completionsAllowed:0,throwGainAllowed:0,throwaways:0,breaksAllowed:0,targets:0,catchesAllowed:0,goalsAllowed:0,assistsAllowed:0,catchGainAllowed:0,blocks:0,edgeAllowed:0});return defense.get(key);};
+ const points=pointsOf(game);
+ for(const point of points)for(const e of point.events){
   if(e.type!=='pass')continue;
-  const skipEdge=pointExcluded(point),fields=fieldsFor(e.side),marker=e[fields.marker],receiverDefender=e[fields.receiverDefender],{complete,throwValue,receiveValue}=passEdge(e,point,ose,game.field),gain=complete?passMetrics(e,point).gain:0,turnover=['throwaway','block','stall'].includes(e.outcome);
-  if(e.side===side){
-   if(e.throwerId===playerId){const row=offenseRow(marker);if(!skipEdge)row.pointIds.add(point.id);row.throws++;if(complete){row.completions++;row.throwGain+=gain;}if(turnover)row.turnovers++;if(e.outcome==='goal')row.assists++;if(e.break)row.breaks++;row.edge+=skipEdge?0:throwValue;}
-   if(e.receiverId===playerId){const row=offenseRow(receiverDefender);if(!skipEdge)row.pointIds.add(point.id);row.targets++;if(complete){row.catches++;row.catchGain+=gain;}if(e.outcome==='drop')row.drops++;if(e.outcome==='goal')row.goals++;row.edge+=skipEdge?0:receiveValue;}
+  const fields=fieldsFor(e.side),marker=e[fields.marker],receiverDefender=e[fields.receiverDefender],ours=e.side===side;
+  // pass values are the expensive part, so passes no tracked player took part in are skipped first
+  if(ours?!wanted(e.throwerId)&&!wanted(e.receiverId):!wanted(marker)&&!wanted(receiverDefender)&&!(e.outcome==='block'&&wanted(e.blockerId)))continue;
+  const skipEdge=pointExcluded(point),{complete,throwValue,receiveValue}=passEdge(e,point,ose,game.field),gain=complete?passMetrics(e,point).gain:0,turnover=['throwaway','block','stall'].includes(e.outcome);
+  if(ours){
+   if(wanted(e.throwerId)){const row=offenseRow(e.throwerId,marker);if(!skipEdge)row.pointIds.add(point.id);row.throws++;if(complete){row.completions++;row.throwGain+=gain;}if(turnover)row.turnovers++;if(e.outcome==='goal')row.assists++;if(e.break)row.breaks++;row.edge+=skipEdge?0:throwValue;}
+   if(wanted(e.receiverId)){const row=offenseRow(e.receiverId,receiverDefender);if(!skipEdge)row.pointIds.add(point.id);row.targets++;if(complete){row.catches++;row.catchGain+=gain;}if(e.outcome==='drop')row.drops++;if(e.outcome==='goal')row.goals++;row.edge+=skipEdge?0:receiveValue;}
   }else{
-   if(marker===playerId){const row=defenseRow(e.throwerId);if(!skipEdge)row.pointIds.add(point.id);row.throwsMarked++;if(complete){row.completionsAllowed++;row.throwGainAllowed+=gain;}if(turnover)row.throwaways++;if(e.break)row.breaksAllowed++;if(e.outcome==='goal')row.assistsAllowed++;row.edgeAllowed+=skipEdge?0:throwValue;}
-   if(receiverDefender===playerId){const row=defenseRow(e.receiverId);if(!skipEdge)row.pointIds.add(point.id);row.targets++;if(complete){row.catchesAllowed++;row.catchGainAllowed+=gain;}if(e.outcome==='goal')row.goalsAllowed++;row.edgeAllowed+=skipEdge?0:receiveValue;}
-   if(e.outcome==='block'&&e.blockerId===playerId){const row=defenseRow(e.handBlock?e.throwerId:e.receiverId);if(!skipEdge)row.pointIds.add(point.id);row.blocks++;}
+   if(wanted(marker)){const row=defenseRow(marker,e.throwerId);if(!skipEdge)row.pointIds.add(point.id);row.throwsMarked++;if(complete){row.completionsAllowed++;row.throwGainAllowed+=gain;}if(turnover)row.throwaways++;if(e.break)row.breaksAllowed++;if(e.outcome==='goal')row.assistsAllowed++;row.edgeAllowed+=skipEdge?0:throwValue;}
+   if(wanted(receiverDefender)){const row=defenseRow(receiverDefender,e.receiverId);if(!skipEdge)row.pointIds.add(point.id);row.targets++;if(complete){row.catchesAllowed++;row.catchGainAllowed+=gain;}if(e.outcome==='goal')row.goalsAllowed++;row.edgeAllowed+=skipEdge?0:receiveValue;}
+   if(e.outcome==='block'&&wanted(e.blockerId)){const row=defenseRow(e.blockerId,e.handBlock?e.throwerId:e.receiverId);if(!skipEdge)row.pointIds.add(point.id);row.blocks++;}
   }
  }
  // a matchup counts as facing each other on a point even when no pass was recorded, in whichever role their team played that point
- for(const point of pointsOf(game)){
+ for(const point of points){
   if(pointExcluded(point))continue;
   const roles=sideRoles(point,side);
-  for(const pair of pointMatchups(point)){
-   const partner=pair[0]===playerId?pair[1]:pair[1]===playerId?pair[0]:null;
-   if(!partner)continue;
+  for(const pair of pointMatchups(point))for(const [playerId,partner] of pair[0]===pair[1]?[[pair[0],pair[1]]]:[[pair[0],pair[1]],[pair[1],pair[0]]]){
+   if(!wanted(playerId)||!partner)continue;
    const opponentId=partner===UNKNOWN_MATCHUP?null:partner;
-   if(roles.offense)offenseRow(opponentId).pointIds.add(point.id);
-   if(roles.defense&&opponentId!==UNGUARDED)defenseRow(opponentId).pointIds.add(point.id);
+   if(roles.offense)offenseRow(playerId,opponentId).pointIds.add(point.id);
+   if(roles.defense&&opponentId!==UNGUARDED)defenseRow(playerId,opponentId).pointIds.add(point.id);
   }
  }
  // points matched: the points in which the two players faced each other at least once
- const pointNumberOf=new Map(pointsOf(game).map((point,index)=>[point.id,index+1])),finish=(row,edgeKey,perPointKey)=>{const {pointIds,...rest}=row;return {...rest,points:pointIds.size,pointNumbers:[...pointIds].map(id=>pointNumberOf.get(id)).sort((a,b)=>a-b),[perPointKey]:pointIds.size?row[edgeKey]/pointIds.size:0};};
- return {offense:[...offense.values()].map(row=>finish(row,'edge','edgePerPoint')),defense:[...defense.values()].map(row=>finish(row,'edgeAllowed','edgeAllowedPerPoint'))};
+ const pointNumberOf=new Map(points.map((point,index)=>[point.id,index+1])),finish=(row,edgeKey,perPointKey)=>{const {pointIds,...rest}=row;return {...rest,points:pointIds.size,pointNumbers:[...pointIds].map(id=>pointNumberOf.get(id)).sort((a,b)=>a-b),[perPointKey]:pointIds.size?row[edgeKey]/pointIds.size:0};};
+ return new Map([...players].map(([playerId,{offense,defense}])=>[playerId,{offense:[...offense.values()].map(row=>finish(row,'edge','edgePerPoint')),defense:[...defense.values()].map(row=>finish(row,'edgeAllowed','edgeAllowedPerPoint'))}]));
 }
-export function advancedStatsFor(game,team,ose=.56,previousShare=.3,previousPreviousShare=.1,includeSecondaryInTotal=false,huckYards=35){
- const base=statsFor([team],[game],huckYards),rows=new Map(base.map(row=>[row.id,{...row,plusMinus:row.goals+row.assists+row.blocks-row.throwaways-row.drops,throwingEdge:0,receivingEdge:0,secondaryThrowingEdge:0,totalEdge:0,totalEdgePerPoint:0,totalEdgePerTouch:0,lateralEdge:0,ledge:0,ledgePerPoint:0,throwEdgeAllowed:0,receiveEdgeAllowed:0,edgeAllowed:0,edgeAllowedPerPoint:0,opponentScoredRate:0,opponentScoredRateFromD:0,opponentScoredRateFromO:0}]));
- const pointList=pointsOf(game);
- const excludedIds=new Set(pointList.filter(pointExcluded).flatMap(p=>[p.id,...p.events.map(e=>e.id)]));
- if(excludedIds.size)for(const row of statsFor([team],[{...game,events:game.events.filter(e=>excludedIds.has(e.id))}],huckYards))if(rows.has(row.id)){rows.get(row.id).opportunities-=row.opportunities;rows.get(row.id).guardedDefenseOpportunities-=row.guardedDefenseOpportunities;}
- const add=(id,key,value)=>{if(id&&rows.has(id))rows.get(id)[key]+=value;};
- for(const p of pointList){let previous=[];
-  if(pointExcluded(p))continue;
+// EDGE credit for one point's passes through add(playerId,key,value); secondary credit follows completed passes within a possession
+function creditPointEdges(p,ose,field,previousShare,previousPreviousShare,add){
+ let previous=[];
   for(const e of p.events){
    if(e.type==='possession_start'){if(e.side==='us')previous=[];continue;}
    if(e.type!=='pass')continue;
-   const {complete,throwValue,receiveValue}=passEdge(e,p,ose,game.field);
+   const {complete,throwValue,receiveValue}=passEdge(e,p,ose,field);
    if(e.side!=='us'){add(e.markerId,'throwEdgeAllowed',throwValue);add(e.receiverDefenderId,'receiveEdgeAllowed',receiveValue);continue;}
    add(e.throwerId,'throwingEdge',throwValue);add(e.receiverId,'receivingEdge',receiveValue);
    if(complete&&e.from&&e.to){const lateralCredit=LATERAL_EDGE_PER_YARD*Math.abs(e.to.y-e.from.y);add(e.throwerId,'lateralEdge',lateralCredit);add(e.receiverId,'lateralEdge',lateralCredit);}
@@ -372,7 +375,28 @@ export function advancedStatsFor(game,team,ose=.56,previousShare=.3,previousPrev
    add(previous.at(-1),'secondaryThrowingEdge',value*previousShare);add(previous.at(-2),'secondaryThrowingEdge',value*previousPreviousShare);
    if(complete&&e.throwerId)previous.push(e.throwerId); else previous=[];
   }
- }
+}
+// advancedStatsFor's throwing, receiving and secondary EDGE and opportunities for each point on its own (pointsOf order), for the given players; these add up point by point, so any set of points can be summed without rerunning the game
+export function pointEdgeRows(game,playerIds,ose=.56,previousShare=.3,previousPreviousShare=.1){
+ const tracked=new Set(playerIds);
+ return pointsOf(game).map(p=>{
+  const rows=new Map();if(pointExcluded(p))return rows;
+  const rowOf=id=>{if(!rows.has(id))rows.set(id,{throwingEdge:0,receivingEdge:0,secondaryThrowingEdge:0,opportunities:0});return rows.get(id);};
+  if(pointHasOpportunity(p))for(const id of pointPlayers(p))if(tracked.has(id))rowOf(id).opportunities++;
+  creditPointEdges(p,ose,game.field,previousShare,previousPreviousShare,(id,key,value)=>{if(tracked.has(id)&&key in POINT_EDGE_KEYS)rowOf(id)[key]+=value;});
+  return rows;
+ });
+}
+const POINT_EDGE_KEYS={throwingEdge:1,receivingEdge:1,secondaryThrowingEdge:1};
+// our team had the disc at some point in this point (started on O, picked it up, or the opponent gave it away)
+function pointHasOpportunity(p){if(p.starting==='O')return true;for(const e of p.events)if((e.type==='possession_start'&&e.side==='us')||(e.side==='them'&&((e.type==='pass'&&!['complete','goal'].includes(e.outcome))||e.type==='turnover')))return true;return false;}
+export function advancedStatsFor(game,team,ose=.56,previousShare=.3,previousPreviousShare=.1,includeSecondaryInTotal=false,huckYards=35){
+ const base=statsFor([team],[game],huckYards),rows=new Map(base.map(row=>[row.id,{...row,plusMinus:row.goals+row.assists+row.blocks-row.throwaways-row.drops,throwingEdge:0,receivingEdge:0,secondaryThrowingEdge:0,totalEdge:0,totalEdgePerPoint:0,totalEdgePerTouch:0,lateralEdge:0,ledge:0,ledgePerPoint:0,throwEdgeAllowed:0,receiveEdgeAllowed:0,edgeAllowed:0,edgeAllowedPerPoint:0,opponentScoredRate:0,opponentScoredRateFromD:0,opponentScoredRateFromO:0}]));
+ const pointList=pointsOf(game);
+ const excludedIds=new Set(pointList.filter(pointExcluded).flatMap(p=>[p.id,...p.events.map(e=>e.id)]));
+ if(excludedIds.size)for(const row of statsFor([team],[{...game,events:game.events.filter(e=>excludedIds.has(e.id))}],huckYards))if(rows.has(row.id)){rows.get(row.id).opportunities-=row.opportunities;rows.get(row.id).guardedDefenseOpportunities-=row.guardedDefenseOpportunities;}
+ const add=(id,key,value)=>{if(id&&rows.has(id))rows.get(id)[key]+=value;};
+ for(const p of pointList)if(!pointExcluded(p))creditPointEdges(p,ose,game.field,previousShare,previousPreviousShare,add);
  for(const row of rows.values()){row.edgeAllowed=row.throwEdgeAllowed+row.receiveEdgeAllowed;row.totalEdge=row.throwingEdge+row.receivingEdge+(includeSecondaryInTotal?row.secondaryThrowingEdge:0);row.totalEdgePerPoint=row.opportunities?row.totalEdge/row.opportunities:0;row.ledge=row.totalEdge+row.lateralEdge;row.ledgePerPoint=row.opportunities?row.ledge/row.opportunities:0;row.edgeAllowedPerPoint=row.guardedDefenseOpportunities?row.edgeAllowed/row.guardedDefenseOpportunities:0;row.opponentScoredRate=row.defenseOpportunities?(row.opponentScoredFromD+row.opponentScoredFromO)/row.defenseOpportunities:0;row.opponentScoredRateFromD=row.defenseOpportunitiesFromD?row.opponentScoredFromD/row.defenseOpportunitiesFromD:0;row.opponentScoredRateFromO=row.defenseOpportunitiesFromO?row.opponentScoredFromO/row.defenseOpportunitiesFromO:0;const touches=row.catches+row.initiated;row.totalEdgePerTouch=touches?row.totalEdge/touches:0;}
  return {rows:[...rows.values()]};
 }
