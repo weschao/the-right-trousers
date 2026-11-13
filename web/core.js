@@ -495,3 +495,18 @@ export function deletePass(game,id){
  game.events.splice(game.events.indexOf(removed),1);
  return {removed,changed:[...changed]};
 }
+
+// inserts a completed pass from the receiver of `afterId` to `to`; if the receiver of that pass made the next throw, a second pass hands the disc from the new receiver back to that thrower at the next throw's origin
+export function insertPassAfter(game,afterId,to,receiverId){
+ const after=game.events.find(e=>e.id===afterId);
+ if(after?.type!=='pass'||after.outcome!=='complete'||!after.to)throw new Error(`event ${afterId} is not a completed pass`);
+ const index=game.events.indexOf(after),next=game.events.slice(index+1).find(e=>e.type==='pass'||['turnover','point_start','point_end','possession_start'].includes(e.type)),connects=next?.type==='pass'&&next.side===after.side&&!!next.from;
+ const pass=(throwerId,receiver,from,destination)=>event('pass',{force:after.force??null,side:after.side,throwerId,receiverId:receiver,from:{...from},to:{...destination},outcome:'complete',markerId:null,opponentMarkerId:null,receiverDefenderId:null,opponentReceiverDefenderId:null,blockerId:null,inserted:true});
+ const added=[pass(after.receiverId,receiverId,after.to,to)],changed=[];
+ if(connects&&next.throwerId===receiverId){next.from={x:to.x,y:to.y};changed.push(next);}
+ else if(connects)added.push(pass(receiverId,next.throwerId,to,next.from));
+ game.events.splice(index+1,0,...added);
+ const point=pointsOf(game).find(p=>p.events.some(e=>e.id===afterId));
+ for(const e of [...added,...changed])e.break=isBreak(e,point,game.field);
+ return {added,changed};
+}
