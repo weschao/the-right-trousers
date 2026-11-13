@@ -479,3 +479,19 @@ export function moveEventLocation(game,id,to){
  for(const e of changed)if(e.type==='pass')e.break=isBreak(e,point,game.field);
  return changed;
 }
+
+// deletes a pass; if it was a catch, the disc never left the thrower: the following events on the catch spot move back to the throw's origin, and the next throw passes to the deleted pass's thrower and marker
+export function deletePass(game,id){
+ const removed=game.events.find(e=>e.id===id);
+ if(removed?.type!=='pass')throw new Error(`event ${id} is not a pass`);
+ const changed=new Set();
+ if(['complete','goal'].includes(removed.outcome)){
+  const index=game.events.indexOf(removed),next=game.events.slice(index+1).find(e=>e.type==='pass'||['point_start','point_end','possession_start'].includes(e.type));
+  if(next?.type==='pass'&&next.side===removed.side&&next.throwerId===removed.receiverId){next.throwerId=removed.throwerId;next.markerId=removed.markerId;next.opponentMarkerId=removed.opponentMarkerId;changed.add(next);}
+  if(removed.from&&removed.to)for(const e of moveEventLocation(game,id,removed.from))if(e!==removed)changed.add(e);
+  const point=pointsOf(game).find(p=>p.events.some(e=>e.id===id));
+  for(const e of changed)if(e.type==='pass')e.break=isBreak(e,point,game.field);
+ }
+ game.events.splice(game.events.indexOf(removed),1);
+ return {removed,changed:[...changed]};
+}
