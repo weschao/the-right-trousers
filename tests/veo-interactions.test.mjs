@@ -38,17 +38,17 @@ test('dragging elsewhere pans; a line picker or a closed event cannot move the c
 test('invalid drag locations leave the last valid coordinates intact',()=>{
  const h=clicker();assert.equal(h.actions.moveClickAt(-1,200),null);assert.equal(h.actions.moveClickAt(200,-1),null);assert.equal(h.state.clicks[0].x,10);assert.equal(h.moves.length,0);
 });
-test('Space over the video always pauses, even when a text input still has focus',()=>{
+test('Space over the video toggles playback, even when a text input still has focus',()=>{
  const h=clicker();h.context.trackerHoveringVideo=true;let prevented=0;
  const space=()=>h.handlers['key:keydown']({key:' ',target:{tagName:'INPUT'},preventDefault(){prevented++;}});
- space();assert.equal(h.video.paused,true);space();assert.equal(h.video.paused,true);assert.equal(prevented,2);
+ space();assert.equal(h.video.paused,true);space();assert.equal(h.video.paused,false);assert.equal(prevented,2);
 });
-test('parent sidebar focus still routes Space to pause when the pointer is over the video',()=>{
+test('parent sidebar focus routes Space to playback when the pointer is over the video',()=>{
  const originalWindow=globalThis.window,originalDocument=globalThis.document;let keydown;
  try{
   globalThis.window={addEventListener(){}};globalThis.document={addEventListener:(type,fn)=>{if(type==='keydown')keydown=fn;}};
-  const tracker=new EnhancedTracker({});let pauses=0,prevented=0;tracker.api={pause:()=>pauses++};tracker.hoveringVideo=true;
-  keydown({key:' ',target:{closest:()=>({})},preventDefault:()=>prevented++});assert.equal(pauses,1);assert.equal(prevented,1);
+  const tracker=new EnhancedTracker({});let toggles=0,prevented=0;tracker.api={handlePlaybackKey:()=>toggles++};tracker.hoveringVideo=true;
+  keydown({key:' ',target:{closest:()=>({})},preventDefault:()=>prevented++});assert.equal(toggles,1);assert.equal(prevented,1);
  }finally{if(originalWindow===undefined)delete globalThis.window;else globalThis.window=originalWindow;if(originalDocument===undefined)delete globalThis.document;else globalThis.document=originalDocument;}
 });
 
@@ -91,4 +91,17 @@ test('sidebar keyboard forwarding preserves Shift for one-minute skips',()=>{
   for(const key of ['ArrowLeft','ArrowRight'])keydown({key,shiftKey:true,target:{closest:()=>null},preventDefault:()=>prevented++});
   assert.deepEqual(forwarded,[['ArrowLeft',true],['ArrowRight',true]]);assert.equal(prevented,2);
  }finally{if(originalWindow===undefined)delete globalThis.window;else globalThis.window=originalWindow;if(originalDocument===undefined)delete globalThis.document;else globalThis.document=originalDocument;}
+});
+
+test('event dialog uses the left side at full width when the click is near the right edge',()=>{
+ const oldWidth=globalThis.innerWidth,oldHeight=globalThis.innerHeight;
+ try{
+  globalThis.innerWidth=1600;globalThis.innerHeight=900;
+  const dialog={classList:{contains:()=>false},style:{},getBoundingClientRect:()=>({height:300})};
+  const tracker={dialogMode:'event',anchor:{x:1400,y:400},frame:{closest:()=>({})}};
+  EnhancedTracker.prototype.positionDialog.call(tracker,dialog);
+  assert.equal(dialog.style.width,'650px');assert.equal(dialog.style.left,'734px');
+  tracker.anchor.x=200;EnhancedTracker.prototype.positionDialog.call(tracker,dialog);
+  assert.equal(dialog.style.width,'650px');assert.equal(dialog.style.left,'216px');
+ }finally{globalThis.innerWidth=oldWidth;globalThis.innerHeight=oldHeight;}
 });
