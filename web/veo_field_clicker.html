@@ -843,7 +843,11 @@ function fitStage() {
   if (!(width > 0 && height > 0)) return;
   const ratio = window.devicePixelRatio || 1;
   for (const canvas of [picture, overlay]) { canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio); }
-  state.view = state.viewFitted ? {...state.view, width, height} : VeoField.wholeView(width, height);
+  if (state.viewFitted) {
+    const view = state.view, factor = width / view.width;
+    const fieldOfView = view.projection === 'flat' ? 2 * Math.atan(Math.tan(view.fieldOfView / 2) * factor) : view.fieldOfView * factor;
+    state.view = VeoField.clampView({...view, width, height, fieldOfView});
+  } else state.view = VeoField.wholeView(width, height);
   state.viewFitted = true;
   refresh();
 }
