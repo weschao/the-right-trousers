@@ -490,6 +490,7 @@ export function moveEventLocation(game,id,to){
   if(e.type==='pass'&&!(e.to&&e.to.x===to.x&&e.to.y===to.y))break;
  }
  const point=pointsOf(game).find(p=>p.events.some(e=>e.id===id));
+ if(moved.type==='pass'&&moved.outcome==='goal'){const field=game.field||FIELD,attack=(point.direction||1)*(moved.side==='them'?-1:1),endzone=field.endzone||20;if(attack===1?to.x<field.length-endzone:to.x>endzone)moved.outcome='complete';}
  for(const e of changed)if(e.type==='pass')e.break=isBreak(e,point,game.field);
  return changed;
 }
