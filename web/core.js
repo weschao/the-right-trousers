@@ -48,12 +48,12 @@ export const UNGUARDED='unguarded';
 // a matchup deliberately recorded as "I don't know who"; counts as assigned, shows as Unknown, and is stored on passes as null
 export const UNKNOWN_MATCHUP='unknown';
 export const isPlaceholderMatchup=id=>id===UNGUARDED||id===UNKNOWN_MATCHUP;
-export const FORCES=['forehand','backhand','middle'];
+export const FORCES=['forehand','backhand','middle','zone'];
 // lateral is measured from the thrower facing the end zone they attack: positive is their right (forehand side)
 // nobody marking the thrower means there was no force to break
 export function isBreak(pass,point,field){
  if(pass[pass.side==='us'?'opponentMarkerId':'markerId']===UNGUARDED)return false;
- if(!pass.force||!pass.from||!pass.to||passMetrics(pass,point).gain<0)return false;
+ if(!pass.force||pass.force==='zone'||!pass.from||!pass.to||passMetrics(pass,point).gain<0)return false;
  const sideways=pass.to.y-pass.from.y,attack=(point.direction||1)*(pass.side==='them'?-1:1),toThrowerRight=sideways*attack;
  if(pass.force==='forehand')return toThrowerRight<-1;
  if(pass.force==='backhand')return toThrowerRight>1;
