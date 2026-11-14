@@ -52,3 +52,5 @@ dialog.wide-modal{max-width:1100px}.throwaway-table{table-layout:fixed;white-spa
 #modal.enhanced-event-dialog .modal-head{cursor:move;touch-action:none;user-select:none}#modal.enhanced-event-dialog .quick-line{grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}#modal.enhanced-event-dialog .quick-player{flex:none;height:58px;min-height:58px;padding:5px 2px;line-height:1.2;white-space:normal;overflow-wrap:anywhere}
 
 .play-feed.has-event-timestamps .event-no{width:64px;flex:none;white-space:nowrap}
+
+.force-from-start{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:11px}
