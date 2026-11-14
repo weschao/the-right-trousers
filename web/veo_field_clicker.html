@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Veo field clicker</title>
+<style>
+  html, body { height: 100%; margin: 0; background: #111; color: #ddd; font: 13px/1.35 system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  #stage { flex: 1; min-height: 0; position: relative; overflow: hidden; background: #000; cursor: crosshair; touch-action: none; }
+  #stage canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+  #overlay { pointer-events: none; }
+  #crosshair-handle { position: absolute; z-index: 1; width: 36px; height: 36px; min-height: 0; padding: 0; border: 0;
+    background: transparent; transform: translate(-50%, -50%); cursor: grab; touch-action: none; }
+  #hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
+          color: #999; font-size: 15px; pointer-events: none; padding: 24px; }
+  #video { position: absolute; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
+  #bar { max-height: 34vh; overflow: auto; scrollbar-width: thin; background: #1b1b1b; border-top: 1px solid #333; padding: 6px 10px; }
+  #bar::-webkit-scrollbar { height: 8px; width: 8px; } #bar::-webkit-scrollbar-thumb { background: #555; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 3px 0; }
+  .group { display: flex; align-items: center; gap: 5px; padding-right: 8px; border-right: 1px solid #333; }
+  .group:last-child { border-right: 0; }
+  button, select, input { font: inherit; color: #ddd; background: #2a2a2a; border: 1px solid #444; border-radius: 4px; padding: 3px 7px; }
+  button { cursor: pointer; } button:hover { background: #353535; }
+  button.on { background: #7a5c00; border-color: #c79a00; color: #fff; }
+  input[type=number] { width: 52px; } #veoUrl { width: 300px; } #seek { flex: 1; min-width: 160px; padding: 0; }
+  a { color: #7fb7ff; }
+  .cone { border-color: #555; } .cone.set { border-color: #3c8a3c; color: #bfe8bf; } .cone.selected { background: #7a5c00; border-color: #c79a00; color: #fff; }
+  #readout { font-size: 20px; font-weight: 600; color: #ffe27a; min-width: 230px; font-variant-numeric: tabular-nums; }
+  #time { font-variant-numeric: tabular-nums; min-width: 190px; }
+  #message { color: #f0b46a; } #fit { color: #9cc; } .quiet { color: #888; }
+  label.file { cursor: pointer; background: #2a2a2a; border: 1px solid #444; border-radius: 4px; padding: 3px 7px; }
+  label.file.loaded { border-color: #3c8a3c; color: #bfe8bf; } label.file input { display: none; }
+  body.embedded #bar { display: none; flex: none; max-height: none; overflow: hidden; }
+  body.embedded.media-loaded #bar { display: block; }
+  body.embedded #bar > .row { display: none; }
+  body.embedded.media-loaded #bar > #playback-controls { display: flex; }
+  body.embedded #playback-controls > .group { display: contents; }
+  body.embedded #playback-controls > .group > :not(#playButton):not(#time) { display: none; }
+  body.embedded #seek { min-width: 70px; }
+  body.embedded #time { min-width: 0; white-space: nowrap; font-size: 12px; }
+  body.embedded #hint { z-index: 2; padding: 24px; }
+  body.embedded #setup-panel { width: min(480px, 100%); pointer-events: auto; cursor: default; }
+  body.embedded #setup-instructions { margin: 0 0 12px; line-height: 1.6; }
+  body.embedded #setup-bookmark { margin-bottom: 18px; }
+  body.embedded #setup-entry input { box-sizing: border-box; width: 100%; padding: 12px 14px; font-size: 16px; }
+  body.embedded #setup-status { color: #f0b46a; font-size: 13px; }
+  body.embedded.media-loaded #hint { display: none; }
+  body.embedded #calibration-controls { display: none; position: absolute; z-index: 2; top: 12px; left: 12px; right: 12px;
+    max-height: min(35%, 220px); box-sizing: border-box; overflow: auto; padding: 10px 12px; margin: 0;
+    border: 1px solid #555; border-radius: 8px; background: rgba(27, 27, 27, .9); cursor: default; }
+  body.embedded.calibrating #calibration-controls { display: flex; }
+  body.embedded #calibration-controls .group { flex-wrap: wrap; border: 0; }
+  body.embedded #cones { display: flex; flex-wrap: wrap; gap: 5px; }
+  body.embedded #calibration-controls input[type=number] { width: 44px; }
+  body.embedded #calibration-controls #fit { width: 100%; font-size: 12px; }
+</style>
+</head>
+<body>
+<script>if (window.parent !== window) document.body.classList.add('embedded');</script>
+<div id="stage" tabindex="-1">
+  <canvas id="picture"></canvas>
+  <canvas id="overlay"></canvas>
+  <button id="crosshair-handle" aria-label="Drag event location" title="Drag event location" hidden></button>
+  <div id="hint"><div id="setup-panel"><p id="setup-instructions"></p><div id="setup-bookmark"></div><div id="setup-entry"></div><p id="setup-status" role="status"></p></div></div>
+  <video id="video" playsinline preload="auto" crossorigin="anonymous"></video>
+</div>
+<div id="bar">
+  <div class="row">
+    <div class="group">
+      <input id="veoUrl" type="text" placeholder="Paste the Veo match URL, or what the bookmark copied" spellcheck="false">
+      <span id="veoLinks" class="quiet"></span>
+      <a id="bookmarklet" title="Drag this to your bookmarks bar. On a Veo match page: click it, open Interactive Player, click it again, then paste here.">Veo → clicker</a>
+    </div>
+    <div class="group">
+      or <label class="file" id="videoLabel">Video file<input id="videoFile" type="file" accept="video/*,.mp4,.mov"></label>
+      <label class="file" id="lensLabel">Lens file (.veo)<input id="lensFile" type="file" accept=".veo,.json"></label>
+      <label class="file" id="driftLabel">Drift (optional)<input id="driftFile" type="file" accept=".json"></label>
+      <span id="driftOffsetGroup" hidden>video starts at Veo second <input id="videoStart" type="number" step="0.0001" style="width:86px"></span>
+    </div>
+    <div class="group">
+      <label class="file">Import session<input id="sessionFile" type="file" accept=".json"></label>
+      <button id="exportButton">Export session</button>
+    </div>
+  </div>
+  <div class="row" id="playback-controls">
+    <div class="group">
+      <button id="playButton" title="space">Play</button>
+      <button id="backButton" title=", (shift: 10 frames)">&lt;</button>
+      <button id="forwardButton" title=". (shift: 10 frames)">&gt;</button>
+      <span id="time"></span>
+    </div>
+    <input id="seek" aria-label="Video timeline" type="range" min="0" max="0" step="0.001" value="0">
+    <div class="group">
+      <button id="resetButton" title="r">Whole field</button>
+      <button id="projectionButton" title="p"></button>
+      <button id="outlineButton" title="o">Outline</button>
+      <span id="zoom" class="quiet"></span>
+    </div>
+  </div>
+  <div class="row" id="calibration-controls">
+    <div class="group">
+      <button id="coneModeButton" title="c">Place cones</button>
+      <span id="cones"></span>
+    </div>
+    <div class="group">
+      A is on the Veo's <select id="aSide"><option value="left">left</option><option value="right">right</option></select>
+      y = 0 on the <select id="yZeroSide"><option value="far">far</option><option value="near">near</option></select> sideline
+    </div>
+    <div class="group">
+      field <input id="fieldLength" type="number" step="1"> long, <input id="fieldWidth" type="number" step="1"> wide,
+      end zones <input id="fieldEndzone" type="number" step="1"> yd
+    </div>
+    <span id="fit"></span>
+  </div>
+  <div class="row">
+    <span id="readout"></span>
+    <span id="message"></span>
+  </div>
+</div>
+<script src="veo_view_model.js"></script>
+<script src="veo_field_model.js"></script>
+<script>
+'use strict';
+// click cones on a downloaded Veo video, then click the field and read (x, y) in yards. all geometry is in
+// veo_field_model.js; this file is the page: one continuous pan/zoom picture drawn from the two stacked lenses
+// by a fragment shader, an overlay drawn in screen pixels, and ACTIONS, one named function per user action.
+
+// the Veo's frame rate, measured on the full Shipwreck file (its timestamps slip one tick per 50,000 frames,
+// 0.3% of a frame over a game). used only for the frame number shown and for stepping
+const VEO_FRAME_RATE = 30000 / 1001;
+const CLICK_SLOP_PIXELS = 4;
+const CONE_ORDER = ['A_back_far', 'A_back_near', 'B_back_far', 'B_back_near', 'A_goal_far', 'A_goal_near', 'B_goal_far', 'B_goal_near'];
+const SESSION_SCHEMA = 'ultimate-tracker/veo-field-clicker/1';
+const element = id => document.getElementById(id);
+const stage = element('stage'), picture = element('picture'), overlay = element('overlay'), video = element('video');
+
+const state = {
+  match: null, veoUrl: '', videoUrl: null,
+  lens: null, lensName: null, drift: null, driftName: null, videoName: null, videoStartVeoSeconds: 0,
+  // regulation ultimate, in Wes's app frame as it was at Shipwreck: A on the Veo's left, y = 0 on its far sideline
+  field: {length: 110, width: 40, endzone: 20, aSide: 'left', yZeroSide: 'far'},
+  cones: {}, coneMode: true, selectedCone: CONE_ORDER[0],
+  fit: null, fitError: null,
+  clicks: [], view: null, viewFitted: false, outline: true, message: '', frameUploaded: false, uploadedTime: null,
+};
+
+// ---- the picture: both lenses resampled into one view ----
+
+const VERTEX_SHADER = `#version 300 es
+in vec2 corner;
+void main() { gl_Position = vec4(corner, 0.0, 1.0); }`;
+const FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+uniform sampler2D frame;
+uniform float pixelRatio;
+uniform vec2 size;              // CSS pixels
+uniform mat3 viewRotation;
+uniform float focal;
+uniform float tanPitch;
+uniform int flatProjection;
+uniform mat3 rigToLens[2];
+uniform vec3 lensOrigin[2];
+uniform vec4 intrinsics[2];     // fx, fy, cx, cy in native sensor pixels
+uniform float distortion[16];   // k1 k2 p1 p2 k3 k4 k5 k6, per lens
+uniform vec3 rowMapping;        // top scale, knee row, bottom scale
+uniform float horizontalScale;
+uniform vec4 ground;            // unit down vector in the rig frame, lens height in metres (0: unknown)
+uniform float feather;
+uniform float maximumRadiusSquared;
+uniform float minimumDepthFraction;
+out vec4 colour;
+
+float toRow(float native) {
+  float kneeNative = rowMapping.y * rowMapping.x;
+  return native <= kneeNative ? native / rowMapping.x : rowMapping.y + (native - kneeNative) / rowMapping.z;
+}
+
+// where lens i sees the point: (u, row within the half, weight); weight 0 where it does not
+vec3 seen(int i, vec3 fromLens) {
+  vec3 q = rigToLens[i] * fromLens;
+  if (q.z <= minimumDepthFraction * length(q)) return vec3(0.0);
+  vec2 n = q.xy / q.z;
+  float r2 = dot(n, n);
+  if (r2 >= maximumRadiusSquared) return vec3(0.0);
+  int k = i * 8;
+  float factor = (1.0 + distortion[k] * r2 + distortion[k + 1] * r2 * r2 + distortion[k + 4] * r2 * r2 * r2)
+               / (1.0 + distortion[k + 5] * r2 + distortion[k + 6] * r2 * r2 + distortion[k + 7] * r2 * r2 * r2);
+  float u = (intrinsics[i].x * n.x * factor + intrinsics[i].z) / horizontalScale;
+  float row = toRow(intrinsics[i].y * n.y * factor + intrinsics[i].w);
+  if (u < 0.0 || u >= 2048.0 || row < 0.0 || row >= 1024.0) return vec3(0.0);
+  float edge = min(min(u, 2048.0 - u), min(row, 1024.0 - row));
+  return vec3(u, row, clamp(edge / feather, 0.001, 1.0));
+}
+
+void main() {
+  vec2 screen = vec2(gl_FragCoord.x / pixelRatio, size.y - gl_FragCoord.y / pixelRatio);
+  float x = (screen.x - 0.5 * size.x) / focal;
+  float y = (screen.y - 0.5 * size.y) / focal;
+  vec3 inView = flatProjection == 1 ? vec3(x, y, 1.0) : vec3(sin(x), y + tanPitch, cos(x));
+  vec3 direction = normalize(viewRotation * inView);
+  // with the ground known, a descending ray is taken to hit the grass, and each lens is asked for that point
+  vec3 point = direction;
+  bool onGround = false;
+  if (ground.w > 0.0) {
+    float descent = dot(ground.xyz, direction);
+    if (descent > 1e-4) { point = direction * (ground.w / descent); onGround = true; }
+  }
+  vec3 first = seen(0, onGround ? point - lensOrigin[0] : direction);
+  vec3 second = seen(1, onGround ? point - lensOrigin[1] : direction);
+  // rows are held half a pixel inside their own lens so the filter never reaches into the other half
+  vec2 firstAt = vec2(first.x, clamp(first.y, 0.5, 1023.5)) / 2048.0;
+  vec2 secondAt = vec2(second.x, clamp(second.y, 0.5, 1023.5) + 1024.0) / 2048.0;
+  vec3 firstColour = textureGrad(frame, firstAt, dFdx(firstAt), dFdy(firstAt)).rgb;
+  vec3 secondColour = textureGrad(frame, secondAt, dFdx(secondAt), dFdy(secondAt)).rgb;
+  float total = first.z + second.z;
+  colour = total > 0.0 ? vec4((first.z * firstColour + second.z * secondColour) / total, 1.0) : vec4(0.07, 0.07, 0.07, 1.0);
+}`;
+
+const gl = picture.getContext('webgl2', {antialias: false, preserveDrawingBuffer: true});
+let program = null;
+const uniforms = {};
+function compile(type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw Error(gl.getShaderInfoLog(shader));
+  return shader;
+}
+function setUpPicture() {
+  if (!gl) throw Error('This browser has no WebGL 2');
+  program = gl.createProgram();
+  gl.attachShader(program, compile(gl.VERTEX_SHADER, VERTEX_SHADER));
+  gl.attachShader(program, compile(gl.FRAGMENT_SHADER, FRAGMENT_SHADER));
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw Error(gl.getProgramInfoLog(program));
+  gl.useProgram(program);
+  const buffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  const corner = gl.getAttribLocation(program, 'corner');
+  gl.enableVertexAttribArray(corner);
+  gl.vertexAttribPointer(corner, 2, gl.FLOAT, false, 0, 0);
+  for (const name of ['frame', 'pixelRatio', 'size', 'viewRotation', 'focal', 'tanPitch', 'flatProjection', 'rigToLens',
+                      'lensOrigin', 'intrinsics', 'distortion', 'rowMapping', 'horizontalScale', 'ground', 'feather',
+                      'maximumRadiusSquared', 'minimumDepthFraction']) {
+    uniforms[name] = gl.getUniformLocation(program, name);
+  }
+  gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  // coarser mip levels would mix the two stacked lenses across their shared edge
+  gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_MAX_LOD, 3);
+}
+
+const columnMajor = matrix => [0, 1, 2].flatMap(column => matrix.map(row => row[column]));
+const transposeOf = matrix => [0, 1, 2].map(row => [0, 1, 2].map(column => matrix[column][row]));
+const veoSecondsNow = () => video.currentTime + state.videoStartVeoSeconds;
+const videoReady = () => video.readyState >= 2 && video.videoWidth > 0;
+
+// the ground as the picture uses it right now, or null (no cones yet, or no drift measured at this time)
+function groundPlaneNow() {
+  if (!state.fit) return null;
+  try { return VeoField.groundPlaneAt(state.fit, state.drift, veoSecondsNow(), state.field); }
+  catch (error) { return null; }
+}
+
+function uploadFrame() {
+  // panning and zooming redraw the frame already on the card; mid-seek the element still holds the OLD frame
+  if (state.uploadedTime === video.currentTime || video.seeking) return;
+  state.uploadedTime = video.currentTime;
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  state.frameUploaded = true;
+}
+
+function draw() {
+  if (!state.viewFitted) return;
+  gl.viewport(0, 0, picture.width, picture.height);
+  if (!state.lens || !videoReady()) {
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    drawOverlay();
+    return;
+  }
+  uploadFrame();
+  const lens = state.lens, view = state.view;
+  const ratio = picture.width / view.width;
+  gl.uniform1i(uniforms.frame, 0);
+  gl.uniform1f(uniforms.pixelRatio, ratio);
+  gl.uniform2f(uniforms.size, view.width, view.height);
+  gl.uniformMatrix3fv(uniforms.viewRotation, false, columnMajor(VeoField.viewRotation(view)));
+  gl.uniform1f(uniforms.focal, VeoField.focalLength(view));
+  gl.uniform1f(uniforms.tanPitch, Math.tan(view.pitch));
+  gl.uniform1i(uniforms.flatProjection, view.projection === 'flat' ? 1 : 0);
+  const blocks = lens.lensToRig.map(transform => transform.slice(0, 3).map(row => row.slice(0, 3)));
+  gl.uniformMatrix3fv(uniforms.rigToLens, false, blocks.flatMap(block => columnMajor(transposeOf(block))));
+  gl.uniform3fv(uniforms.lensOrigin, lens.lensToRig.flatMap(transform => transform.slice(0, 3).map(row => row[3])));
+  gl.uniform4fv(uniforms.intrinsics, lens.cameraMatrices.flatMap(matrix => [matrix[0][0], matrix[1][1], matrix[0][2], matrix[1][2]]));
+  gl.uniform1fv(uniforms.distortion, lens.distortions.flat());
+  gl.uniform3f(uniforms.rowMapping, lens.verticalMapping.top_scale, lens.verticalMapping.knee_row, lens.verticalMapping.bottom_scale);
+  gl.uniform1f(uniforms.horizontalScale, lens.horizontalScale);
+  const plane = groundPlaneNow();
+  gl.uniform4f(uniforms.ground, ...(plane ? [...plane.down, plane.heightMetres] : [0, 0, 0, 0]));
+  gl.uniform1f(uniforms.feather, VeoField.FEATHER_PIXELS);
+  gl.uniform1f(uniforms.maximumRadiusSquared, VeoField.MAXIMUM_RADIUS_SQUARED);
+  gl.uniform1f(uniforms.minimumDepthFraction, VeoField.MINIMUM_DEPTH_FRACTION);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  drawOverlay();
+}
+
+// ---- the overlay, in screen pixels (never inside a scaled layer) ----
+
+function screenOfPixel(u, v) {
+  if (!state.lens || !state.view) return null;
+  return VeoField.directionToScreen(state.view, VeoField.pixelToViewDirection(state.lens, u, v, groundPlaneNow()));
+}
+
+function drawOverlay() {
+  element('crosshair-handle').hidden = true;
+  const context = overlay.getContext('2d');
+  const ratio = overlay.width / state.view.width;
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, state.view.width, state.view.height);
+  if (!state.lens || !videoReady()) return;
+  if (state.fit && state.outline) drawOutline(context);
+  context.font = '12px system-ui, sans-serif';
+  for (const name of CONE_ORDER) {
+    const cone = state.cones[name];
+    const at = cone && screenOfPixel(cone.u, cone.v);
+    if (!at) continue;
+    drawMarker(context, at, name === state.selectedCone && state.coneMode ? '#ffd24a' : '#62d862', name.replaceAll('_', ' '));
+  }
+  const last = state.clicks.at(-1);
+  const lastAt = last && screenOfPixel(last.u, last.v);
+  if (lastAt) {
+    drawMarker(context, lastAt, '#ffe27a', `(${last.x.toFixed(1)}, ${last.y.toFixed(1)})`);
+    if (trackerCanMoveClick) {
+      const handle = element('crosshair-handle');handle.hidden = false;handle.style.left = lastAt.x + 'px';handle.style.top = lastAt.y + 'px';
+      handle.setAttribute('aria-label', `Drag event location: ${last.x.toFixed(1)}, ${last.y.toFixed(1)} yards`);
+    }
+  }
+}
+
+function drawMarker(context, at, colour, label) {
+  context.lineWidth = 3; context.strokeStyle = 'rgba(0,0,0,0.75)';
+  for (let pass = 0; pass < 2; pass++) {
+    context.beginPath();
+    context.arc(at.x, at.y, 7, 0, 2 * Math.PI);
+    context.moveTo(at.x - 12, at.y); context.lineTo(at.x - 3, at.y); context.moveTo(at.x + 3, at.y); context.lineTo(at.x + 12, at.y);
+    context.moveTo(at.x, at.y - 12); context.lineTo(at.x, at.y - 3); context.moveTo(at.x, at.y + 3); context.lineTo(at.x, at.y + 12);
+    context.stroke();
+    context.lineWidth = 1.25; context.strokeStyle = colour;
+  }
+  context.lineWidth = 3; context.strokeStyle = 'rgba(0,0,0,0.8)'; context.strokeText(label, at.x + 11, at.y - 9);
+  context.fillStyle = colour; context.fillText(label, at.x + 11, at.y - 9);
+}
+
+function drawOutline(context) {
+  let seconds;
+  try { seconds = veoSecondsNow(); VeoField.turnAt(state.drift, seconds); } catch (error) { return; }
+  context.lineWidth = 1.25; context.strokeStyle = 'rgba(255, 226, 122, 0.85)';
+  context.beginPath();
+  for (const line of VeoField.fieldLines(state.field)) {
+    let previous = null;
+    for (let step = 0; step <= 96; step++) {
+      const fraction = step / 96;
+      const point = {x: line.start.x + fraction * (line.end.x - line.start.x), y: line.start.y + fraction * (line.end.y - line.start.y)};
+      const at = VeoField.directionToScreen(state.view, VeoField.fieldToDirection(state.fit, state.drift, seconds, point));
+      if (at && previous && Math.hypot(at.x - previous.x, at.y - previous.y) < state.view.width / 3) {
+        context.moveTo(previous.x, previous.y); context.lineTo(at.x, at.y);
+      }
+      previous = at;
+    }
+  }
+  context.stroke();
+}
+
+// ---- the bar ----
+
+function formatTime(seconds) {
+  const whole = Math.floor(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}.${String(Math.floor((seconds - whole) * 100)).padStart(2, '0')}`;
+}
+const frameAt = seconds => Math.floor(seconds * VEO_FRAME_RATE + 1e-6);
+const feetAndInches = feet => { const inches = Math.round(feet * 12); return `${Math.floor(inches / 12)}'${inches % 12}"`; };
+// rewrite a part of the bar only when it changes: replacing a button mid-click would swallow the click
+function setHtml(target, html) { if (target.dataset.html !== html) { target.dataset.html = html; target.innerHTML = html; } }
+
+function refreshBar() {
+  element('playButton').textContent = video.paused ? 'Play' : 'Pause';
+  element('time').textContent = videoReady() || video.duration
+    ? `${formatTime(video.currentTime)} / ${formatTime(video.duration || 0)}${trackerConnection ? '' : ` · frame ${frameAt(video.currentTime)}`}` : '';
+  if (document.activeElement !== element('seek')) element('seek').value = video.currentTime;
+  element('seek').max = video.duration || 0;
+  element('projectionButton').textContent = state.view?.projection === 'flat' ? 'Flat lens' : 'Wide view';
+  element('outlineButton').classList.toggle('on', state.outline);
+  element('coneModeButton').classList.toggle('on', state.coneMode);
+  element('zoom').textContent = state.view ? `${(state.view.fieldOfView * 180 / Math.PI).toFixed(0)}° across` : '';
+  element('videoLabel').classList.toggle('loaded', !!state.videoName);
+  element('lensLabel').classList.toggle('loaded', !!state.lens);
+  element('driftLabel').classList.toggle('loaded', !!state.drift);
+  element('driftOffsetGroup').hidden = !state.drift;
+  if (document.activeElement !== element('videoStart')) element('videoStart').value = state.videoStartVeoSeconds;
+  if (!trackerConnection && document.activeElement !== element('veoUrl')) element('veoUrl').value = state.veoUrl;
+  setHtml(element('veoLinks'), state.match ? `<a href="${state.match.matchUrl}" target="_blank" rel="noopener">match page</a> ·` : '');
+  const positions = VeoField.conePositions(state.field);
+  setHtml(element('cones'), CONE_ORDER.map((name, index) => {
+    const classes = ['cone', state.cones[name] ? 'set' : '', state.coneMode && name === state.selectedCone ? 'selected' : ''].join(' ');
+    const miss = state.fit && state.fit.coneCount > 4 && state.fit.misses[name] !== undefined ? ` ${state.fit.misses[name].toFixed(1)}` : '';
+    return `<button class="${classes}" data-cone="${name}" title="key ${index + 1}: (${positions[name].x}, ${positions[name].y}) yd">${name.replaceAll('_', ' ')}${miss}</button>`;
+  }).join(' '));
+  for (const [id, key] of [['fieldLength', 'length'], ['fieldWidth', 'width'], ['fieldEndzone', 'endzone']]) {
+    if (document.activeElement !== element(id)) element(id).value = state.field[key];
+  }
+  element('aSide').value = state.field.aSide;
+  element('yZeroSide').value = state.field.yZeroSide;
+  const camera = state.fit?.camera;
+  element('fit').textContent = state.fitError ? state.fitError
+    : camera ? `${state.fit.coneCount} cones · they put the lens ${feetAndInches(camera.heightFeet)} up, the field ${camera.aspect.toFixed(3)} : 1, ${camera.skewDegrees.toFixed(1)}° off square`
+    : `${Object.keys(state.cones).length} of 4 cones`;
+  const last = state.clicks.at(-1);
+  element('readout').textContent = last ? `x ${last.x.toFixed(1)} yd   y ${last.y.toFixed(1)} yd` : '';
+  element('message').textContent = state.message;
+  element('setup-status').textContent = trackerConnection && (!state.lens || !videoReady()) && state.message !== 'Session loaded' && !state.message.startsWith('Now get the video:') ? state.message : '';
+  element('setup-instructions').textContent = !state.lens || !state.videoName
+    ? trackerConnection
+      ? 'Drag the Veo → clicker link below to your bookmarks bar. On the Veo match page, click it, open Interactive Player, then click it again. Paste the copied video and lens links below.'
+      : 'Drag "Veo → clicker" to your bookmarks bar. On the Veo match page: click it, open Interactive Player, click it again. Then paste here. (Or choose a downloaded video and its .veo lens file.)'
+    : !videoReady() ? 'Loading the video…' : '';
+}
+
+function refresh() { draw(); refreshBar(); trackerRefresh(); }
+function say(message) { state.message = message; }
+
+function refit() {
+  trackerDirty = true;
+  state.fit = null; state.fitError = null;
+  if (!state.lens || Object.keys(state.cones).length < 4) return;
+  try { state.fit = VeoField.fitField(state.lens, state.cones, state.field, state.drift); }
+  catch (error) { state.fitError = error.message; }
+}
+
+// ---- the actions: everything a user can do, one function each ----
+
+const ACTIONS = {
+  // the box takes a match URL, or the text the bookmark copies (the match plus links to its video and lens file)
+  async enterLinks(text) {
+    const links = VeoField.linksFromText(text);
+    state.match = links.match;
+    state.veoUrl = links.match ? links.match.matchUrl : text.trim();
+    if (links.videoUrl) ACTIONS.loadVideo(links.videoUrl, 'streamed from Veo', links.videoUrl);
+    if (links.lensUrl) {
+      const response = await fetch(links.lensUrl);
+      if (!response.ok) throw Error(`The lens file could not be fetched (${response.status})`);
+      ACTIONS.loadLens(await response.json(), links.lensUrl.split('/').at(-1));
+    }
+    say(links.videoUrl && links.lensUrl ? 'Streaming the video from Veo.'
+      : links.followCamOnly ? 'That is the follow-cam video. The clicker needs the two-lens panorama: use the bookmark on the match page.'
+      : links.match ? 'Now get the video: on the match page click the "Veo → clicker" bookmark, open Interactive Player, click it again, and paste here.'
+      : text.trim() ? 'That is not a Veo match URL or a copied set of links' : '');
+    refresh();
+  },
+  // url: a blob of a chosen file, or a link Veo serves; remoteUrl is kept so a saved session can reopen the stream
+  loadVideo(url, name, remoteUrl = null) {
+    trackerDirty = true;
+    state.videoName = name; state.videoUrl = remoteUrl; state.frameUploaded = false; state.uploadedTime = null;
+    video.src = url;
+    video.load();
+    say('');
+    refresh();
+  },
+  loadLens(record, name) {
+    state.lens = VeoField.lensFromRecord(record);
+    state.lensName = name;
+    say(`Lens model loaded; row packing: ${state.lens.verticalMappingSource}`);
+    refit(); refresh();
+  },
+  loadDrift(record, name) {
+    state.drift = VeoField.driftFromRecord(record);
+    state.driftName = name;
+    say(`Drift loaded: ${state.drift.seconds.length} samples over ${formatTime(state.drift.seconds.at(-1))}`);
+    refit(); refresh();
+  },
+  setVideoStart(seconds) {
+    if (!Number.isFinite(seconds)) throw Error('The video start must be a number of seconds');
+    state.videoStartVeoSeconds = seconds;
+    refit(); refresh();
+  },
+  setField(changes) {
+    const field = {...state.field, ...changes};
+    VeoField.checkField(field);
+    state.field = field;
+    refit(); refresh();
+  },
+  setConeMode(on) {
+    trackerDirty = true;
+    state.coneMode = !!on;
+    if (state.coneMode && !state.selectedCone) state.selectedCone = CONE_ORDER.find(name => !state.cones[name]) || CONE_ORDER[0];
+    say(state.coneMode ? `Click the ${state.selectedCone.replaceAll('_', ' ')} cone` : '');
+    refresh();
+  },
+  selectCone(name) {
+    if (!CONE_ORDER.includes(name)) throw Error(`Unknown cone ${name}`);
+    trackerDirty = true;
+    state.selectedCone = name; state.coneMode = true;
+    say(`Click the ${name.replaceAll('_', ' ')} cone`);
+    refresh();
+  },
+  removeCone(name) {
+    delete state.cones[name];
+    refit(); refresh();
+  },
+  removeLastClick() { state.clicks.pop(); refresh(); },
+  // a click on the picture at stage coordinates (CSS pixels): always pauses; places the selected cone, or reads the field
+  clickAt(screenX, screenY) {
+    if (trackerBlocked) return null;
+    if (!state.lens || !videoReady()) return null;
+    video.pause();
+    const direction = VeoField.screenToDirection(state.view, screenX, screenY);
+    const sample = VeoField.sampleDirection(state.lens, direction, groundPlaneNow())[0];
+    if (!sample) { say('That is outside the picture'); refresh(); return null; }
+    const seconds = veoSecondsNow();
+    if (state.coneMode) {
+      const hadFit = !!state.fit;
+      state.cones[state.selectedCone] = {u: sample.u, v: sample.v, seconds};
+      refit();
+      const next = CONE_ORDER.find(name => !state.cones[name]);
+      if (state.fit && !hadFit) { state.coneMode = false; say('Field fitted. Click anywhere on the field.'); }
+      else if (next) { state.selectedCone = next; say(state.fitError || `Click the ${next.replaceAll('_', ' ')} cone`); }
+      else { state.coneMode = false; say(state.fitError || 'All eight cones placed.'); }
+      refresh();
+      return null;
+    }
+    if (!state.fit) { say(state.fitError || 'Place four cones first (c)'); refresh(); return null; }
+    let found;
+    try { found = VeoField.pixelToField(state.lens, state.fit, state.drift, seconds, sample.u, sample.v); }
+    catch (error) { say(error.message); refresh(); return null; }
+    if (!found) { say('That is at or above the horizon, not on the ground'); refresh(); return null; }
+    const inside = found.x >= 0 && found.x <= state.field.length && found.y >= 0 && found.y <= state.field.width;
+    const click = {videoSeconds: video.currentTime, veoSeconds: seconds, frame: frameAt(video.currentTime), u: sample.u, v: sample.v,
+                   x: found.x, y: found.y, inField: inside};
+    state.clicks.push(click);
+    trackerConnection?.onClick?.({...click, screenX, screenY});
+    say(inside ? '' : 'Outside the field lines');
+    refresh();
+    return click;
+  },
+  // Correct the pending event's location without changing its captured video timestamp.
+  moveClickAt(screenX, screenY) {
+    const click = state.clicks.at(-1);
+    if (!trackerCanMoveClick || !click || !state.fit || !state.lens || !videoReady()) return null;
+    const direction = VeoField.screenToDirection(state.view, screenX, screenY);
+    const sample = VeoField.sampleDirection(state.lens, direction, groundPlaneNow())[0];
+    if (!sample) return null;
+    let found;
+    try { found = VeoField.pixelToField(state.lens, state.fit, state.drift, veoSecondsNow(), sample.u, sample.v); }
+    catch { return null; }
+    if (!found || !Number.isFinite(found.x) || !Number.isFinite(found.y)) return null;
+    const inside = found.x >= 0 && found.x <= state.field.length && found.y >= 0 && found.y <= state.field.width;
+    Object.assign(click, {u: sample.u, v: sample.v, x: found.x, y: found.y, inField: inside});
+    trackerConnection?.onMove?.({...click, screenX, screenY});
+    say(inside ? '' : 'Outside the field lines');
+    refresh();
+    return click;
+  },
+  togglePlay() { if (video.paused) video.play(); else video.pause(); },
+  seek(seconds) {
+    if (!(video.duration > 0)) return;
+    video.currentTime = Math.min(Math.max(seconds, 0), video.duration);
+  },
+  // lands mid-frame, so the frame shown does not hang on a rounding edge
+  stepFrames(count) {
+    video.pause();
+    ACTIONS.seek((Math.max(0, frameAt(video.currentTime) + count) + 0.5) / VEO_FRAME_RATE);
+  },
+  zoomAt(screenX, screenY, deltaY) { state.view = VeoField.zoomAbout(state.view, screenX, screenY, deltaY); refresh(); trackerConnection?.onViewChange?.(); },
+  panBy(fromX, fromY, toX, toY) { state.view = VeoField.panBy(state.view, fromX, fromY, toX, toY); refresh(); trackerConnection?.onViewChange?.(); },
+  resetView() { state.view = VeoField.wholeView(state.view.width, state.view.height); refresh(); },
+  setProjection(projection) { state.view = VeoField.withProjection(state.view, projection); refresh(); },
+  toggleProjection() { ACTIONS.setProjection(state.view.projection === 'flat' ? 'wide' : 'flat'); },
+  setView(view) { state.view = VeoField.clampView({...state.view, ...view}); refresh(); },
+  toggleOutline() { state.outline = !state.outline; refresh(); },
+  exportSession() {
+    return {schema: SESSION_SCHEMA, exported_at: new Date().toISOString(), veo_url: state.veoUrl, video_name: state.videoName, video_url: state.videoUrl,
+            video_start_veo_seconds: state.videoStartVeoSeconds, lens_name: state.lensName, lens: state.lens, drift_name: state.driftName, drift: state.drift,
+            field_yards: state.field, cones: state.cones, fit: state.fit && {camera: state.fit.camera, misses_yards: state.fit.misses},
+            clicks: state.clicks};
+  },
+  importSession(record) {
+    if (record.schema !== SESSION_SCHEMA) throw Error(`Not a Veo field clicker session (${record.schema})`);
+    VeoField.checkField(record.field_yards);
+    state.veoUrl = record.veo_url || ''; state.match = VeoField.matchFromUrl(state.veoUrl);
+    state.lens = record.lens; state.lensName = record.lens_name;
+    state.drift = record.drift || null; state.driftName = record.drift_name || null;
+    state.videoStartVeoSeconds = record.video_start_veo_seconds;
+    state.field = record.field_yards; state.cones = record.cones; state.clicks = record.clicks;
+    state.coneMode = Object.keys(state.cones).length < 4;
+    if (record.view) state.view = VeoField.clampView({...record.view, width: stage.clientWidth, height: stage.clientHeight});
+    if (Number.isFinite(record.video_time)) video.currentTime = record.video_time;
+    if (record.video_url && record.video_url !== state.videoUrl) ACTIONS.loadVideo(record.video_url, record.video_name, record.video_url);
+    refit();
+    say(record.drift_name && !state.drift ? `This session was made with the drift file ${record.drift_name}: load it again` : 'Session loaded');
+    refresh();
+  },
+  downloadSession() {
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([JSON.stringify(ACTIONS.exportSession(), null, 2)], {type: 'application/json'}));
+    link.download = `veo-field-clicks-${state.match?.slug || 'session'}.json`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  },
+  // ---- for the checks ----
+  screenOfPixel,
+  probe() {
+    return {visibility: document.visibilityState, readyState: video.readyState, videoWidth: video.videoWidth, videoHeight: video.videoHeight,
+            duration: video.duration, currentTime: video.currentTime, paused: video.paused, frame: frameAt(video.currentTime),
+            hasLens: !!state.lens, hasDrift: !!state.drift, videoName: state.videoName, streamed: !!state.videoUrl, view: state.view, viewFitted: state.viewFitted,
+            coneMode: state.coneMode, selectedCone: state.selectedCone, cones: state.cones,
+            fit: state.fit && {camera: state.fit.camera, misses: state.fit.misses, coneCount: state.fit.coneCount}, fitError: state.fitError,
+            clickCount: state.clicks.length, lastClick: state.clicks.at(-1) || null, field: state.field, match: state.match,
+            message: state.message, outline: state.outline, frameUploaded: state.frameUploaded,
+            canvas: {width: picture.width, height: picture.height}, stage: {width: stage.clientWidth, height: stage.clientHeight}};
+  },
+  // the colour the picture shows at a stage position, read back from the canvas itself
+  renderedColour(screenX, screenY) {
+    draw();
+    const ratio = picture.width / state.view.width;
+    const pixel = new Uint8Array(4);
+    gl.readPixels(Math.floor(screenX * ratio), picture.height - 1 - Math.floor(screenY * ratio), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+    return [pixel[0], pixel[1], pixel[2]];
+  },
+  // the colours of the video's own current frame at stacked-frame pixels [[u, v], ...], bilinear
+  sourceColours(pixels) {
+    const canvas = ACTIONS._source || (ACTIONS._source = new OffscreenCanvas(2048, 2048));
+    const context = canvas.getContext('2d', {willReadFrequently: true});
+    context.drawImage(video, 0, 0);
+    const data = context.getImageData(0, 0, 2048, 2048).data;
+    return pixels.map(([u, v]) => {
+      const x = Math.min(Math.max(u - 0.5, 0), 2046.999), y = Math.min(Math.max(v - 0.5, 0), 2046.999);
+      const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
+      return [0, 1, 2].map(channel => {
+        const at = (column, row) => data[(row * 2048 + column) * 4 + channel];
+        return (1 - fy) * ((1 - fx) * at(x0, y0) + fx * at(x0 + 1, y0)) + fy * ((1 - fx) * at(x0, y0 + 1) + fx * at(x0 + 1, y0 + 1));
+      });
+    });
+  },
+};
+window.ACTIONS = ACTIONS;
+
+// Embedded Right Trousers integration. Standalone use retains the original controls.
+let trackerConnection = null, trackerDirty = false, trackerWasReady = false, trackerBlocked = false, trackerCanMoveClick = false, trackerPointerInStage = false, trackerHoveringVideo = false, trackerPendingSeek = null;
+const trackerReady = () => !!state.fit && !state.coneMode && videoReady();
+function trackerSession() {
+  return {...ACTIONS.exportSession(), clicks: [], video_time: video.currentTime, view: state.view};
+}
+function trackerRefresh() {
+  if (!trackerConnection) return;
+  const ready = trackerReady();
+  const loaded = !!state.lens && videoReady();
+  syncTrackerHover();
+  document.body.classList.toggle('media-loaded', loaded);
+  document.body.classList.toggle('calibrating', loaded && state.coneMode);
+  document.body.classList.toggle('tracking', ready);
+  if (trackerDirty) { trackerDirty = false; trackerConnection.onSession?.(trackerSession()); }
+  if (ready !== trackerWasReady) { trackerWasReady = ready; trackerConnection.onReady?.(ready); }
+}
+function syncTrackerHover() {
+  const hovering = trackerPointerInStage && !!state.lens && videoReady();
+  if (hovering !== trackerHoveringVideo) { trackerHoveringVideo = hovering; trackerConnection?.onHover?.(hovering); }
+}
+window.VeoTracker = {
+  connect(connection) {
+    trackerConnection = connection;
+    document.body.classList.add('embedded');
+    element('setup-entry').append(element('veoUrl'));
+    element('veoUrl').placeholder = 'Paste here';
+    element('veoUrl').setAttribute('aria-label', 'Video and lens links');
+    element('veoUrl').value = '';
+    element('setup-bookmark').append(element('bookmarklet'));
+    stage.append(element('calibration-controls'));
+    for (const id of ['fieldLength', 'fieldWidth', 'fieldEndzone']) element(id).disabled = true;
+    if (connection.session) { trackerPendingSeek = connection.session.video_time || 0; ACTIONS.importSession(connection.session); }
+    else {
+      ACTIONS.setField(connection.field);
+      ACTIONS.enterLinks(connection.url).catch(error => { say(error.message); refresh(); });
+    }
+    trackerRefresh();
+  },
+  screenOfPixel,
+  ready: trackerReady,
+  seconds: veoSecondsNow,
+  pause() { video.pause(); },
+  focus() { stage.focus({preventScroll: true}); },
+  play() { if (trackerReady()) video.play().catch(error => { say(error.message); refreshBar(); }); },
+  block(on, moveClick = false) { trackerBlocked = !!on; trackerCanMoveClick = trackerBlocked && !!moveClick; drawOverlay(); },
+  handlePlaybackKey,
+  configure() { ACTIONS.setConeMode(!state.coneMode); },
+  save() { return trackerSession(); },
+};
+video.addEventListener('loadedmetadata', () => {
+  if (trackerPendingSeek !== null) { ACTIONS.seek(trackerPendingSeek); trackerPendingSeek = null; }
+});
+for (const name of ['pause', 'seeked']) video.addEventListener(name, () => {
+  if (trackerConnection) trackerConnection.onSession?.(trackerSession());
+});
+
+// ---- events: each one only calls an action ----
+
+function guarded(action) {
+  return (...parameters) => {
+    try { return action(...parameters); }
+    catch (error) { say(error.message); refreshBar(); return undefined; }
+  };
+}
+const readJson = async file => JSON.parse(await file.text());
+const stagePoint = event => { const box = stage.getBoundingClientRect(); return {x: event.clientX - box.left, y: event.clientY - box.top}; };
+
+const enterVeoLinks = () => ACTIONS.enterLinks(element('veoUrl').value).catch(error => { say(error.message); refreshBar(); });
+element('veoUrl').addEventListener('change', enterVeoLinks);
+element('veoUrl').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); enterVeoLinks(); } });
+element('bookmarklet').setAttribute('href', VeoField.bookmarkletSource());
+// clicked here it would only look at this page; it is for dragging to the bookmarks bar
+element('bookmarklet').addEventListener('click', event => { event.preventDefault(); say('Drag "Veo → clicker" to your bookmarks bar; click it on a Veo match page.'); refreshBar(); });
+element('videoFile').addEventListener('change', event => { const file = event.target.files[0]; if (file) ACTIONS.loadVideo(URL.createObjectURL(file), file.name); });
+element('lensFile').addEventListener('change', async event => { const file = event.target.files[0]; if (file) guarded(ACTIONS.loadLens)(await readJson(file), file.name); });
+element('driftFile').addEventListener('change', async event => { const file = event.target.files[0]; if (file) guarded(ACTIONS.loadDrift)(await readJson(file), file.name); });
+element('sessionFile').addEventListener('change', async event => { const file = event.target.files[0]; if (file) guarded(ACTIONS.importSession)(await readJson(file)); });
+element('videoStart').addEventListener('change', event => guarded(ACTIONS.setVideoStart)(Number(event.target.value)));
+element('exportButton').addEventListener('click', () => ACTIONS.downloadSession());
+element('playButton').addEventListener('click', () => ACTIONS.togglePlay());
+element('backButton').addEventListener('click', event => ACTIONS.stepFrames(event.shiftKey ? -10 : -1));
+element('forwardButton').addEventListener('click', event => ACTIONS.stepFrames(event.shiftKey ? 10 : 1));
+element('seek').addEventListener('input', event => ACTIONS.seek(Number(event.target.value)));
+// a control that keeps the focus would swallow the next space or arrow key, and a focused slider stops following
+element('seek').addEventListener('change', event => event.target.blur());
+element('bar').addEventListener('click', event => { if (event.target.tagName === 'BUTTON') event.target.blur(); });
+element('resetButton').addEventListener('click', () => ACTIONS.resetView());
+element('projectionButton').addEventListener('click', () => ACTIONS.toggleProjection());
+element('outlineButton').addEventListener('click', () => ACTIONS.toggleOutline());
+element('coneModeButton').addEventListener('click', () => ACTIONS.setConeMode(!state.coneMode));
+element('cones').addEventListener('click', event => { const name = event.target.dataset?.cone; if (name) ACTIONS.selectCone(name); });
+element('aSide').addEventListener('change', event => guarded(ACTIONS.setField)({aSide: event.target.value}));
+element('yZeroSide').addEventListener('change', event => guarded(ACTIONS.setField)({yZeroSide: event.target.value}));
+for (const [id, key] of [['fieldLength', 'length'], ['fieldWidth', 'width'], ['fieldEndzone', 'endzone']]) {
+  element(id).addEventListener('change', event => guarded(ACTIONS.setField)({[key]: Number(event.target.value)}));
+}
+
+stage.addEventListener('pointerenter', () => { trackerPointerInStage = true; syncTrackerHover(); });
+stage.addEventListener('pointerleave', () => { trackerPointerInStage = false; syncTrackerHover(); });
+
+// Drag the pending yellow crosshair to correct its location; dragging elsewhere pans the video.
+let press = null;
+function editableCrosshairAt(at, radius = 18) {
+  const click = trackerCanMoveClick && state.clicks.at(-1), marker = click && screenOfPixel(click.u, click.v);
+  return marker && Math.hypot(at.x - marker.x, at.y - marker.y) <= radius ? marker : null;
+}
+stage.addEventListener('pointerdown', event => {
+  if (event.button !== 0 || !state.viewFitted || event.target.closest('#calibration-controls, #setup-panel')) return;
+  const at = stagePoint(event), marker = editableCrosshairAt(at, event.pointerType === 'touch' ? 24 : 18);
+  press = {start: at, last: at, moved: false, dragClick: !!marker,
+    offset: marker && {x: at.x - marker.x, y: at.y - marker.y}, original: marker && {...state.clicks.at(-1)}};
+  if (marker) { video.pause(); stage.style.cursor = 'grabbing'; }
+  stage.setPointerCapture(event.pointerId);
+  event.preventDefault();
+});
+stage.addEventListener('pointermove', event => {
+  const at = stagePoint(event);
+  if (!press) { stage.style.cursor = editableCrosshairAt(at) ? 'grab' : 'crosshair'; return; }
+  if (!press.moved && Math.hypot(at.x - press.start.x, at.y - press.start.y) <= CLICK_SLOP_PIXELS) return;
+  press.moved = true;
+  if (press.dragClick) ACTIONS.moveClickAt(at.x - press.offset.x, at.y - press.offset.y);
+  else ACTIONS.panBy(press.last.x, press.last.y, at.x, at.y);
+  press.last = at;
+});
+stage.addEventListener('pointerup', event => {
+  if (!press) return;
+  const gesture = press, at = stagePoint(event);
+  press = null;
+  if (gesture.dragClick) {
+    if (gesture.moved) ACTIONS.moveClickAt(at.x - gesture.offset.x, at.y - gesture.offset.y);
+    stage.style.cursor = 'grab';
+  } else if (!gesture.moved) guarded(ACTIONS.clickAt)(gesture.start.x, gesture.start.y);
+});
+stage.addEventListener('pointercancel', () => {
+  if (press?.dragClick && state.clicks.at(-1)) {
+    Object.assign(state.clicks.at(-1), press.original);
+    trackerConnection?.onMove?.({...press.original});
+    refresh();
+  }
+  press = null; stage.style.cursor = 'crosshair';
+});
+stage.addEventListener('wheel', event => {
+  if (event.target.closest('#calibration-controls, #setup-panel')) return;
+  event.preventDefault();
+  if (!state.viewFitted) return;
+  const at = stagePoint(event);
+  ACTIONS.zoomAt(at.x, at.y, event.deltaY);
+}, {passive: false});
+
+function handlePlaybackKey(key, shiftKey = false) {
+  const skip = shiftKey ? 60 : 5;
+  if (key === ' ') ACTIONS.togglePlay();
+  else if (key === 'ArrowLeft') ACTIONS.seek(video.currentTime - skip);
+  else if (key === 'ArrowRight') ACTIONS.seek(video.currentTime + skip);
+  else return false;
+  return true;
+}
+
+document.addEventListener('keydown', event => {
+  if (trackerHoveringVideo && event.key === ' ' && !event.metaKey && !event.ctrlKey && !event.altKey) { video.pause(); event.preventDefault(); return; }
+  if (trackerBlocked && event.key === 'Escape') { trackerConnection?.onEscape?.(); return; }
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(event.target.tagName) && event.target.type !== 'range') return;
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  const key = event.key;
+  if (handlePlaybackKey(key, event.shiftKey)) { event.preventDefault(); return; }
+  if (trackerBlocked) return;
+  if (key === ',' || key === '<') ACTIONS.stepFrames(event.shiftKey ? -10 : -1);
+  else if (key === '.' || key === '>') ACTIONS.stepFrames(event.shiftKey ? 10 : 1);
+  else if (key === 'c') ACTIONS.setConeMode(!state.coneMode);
+  else if (key === 'r') ACTIONS.resetView();
+  else if (key === 'p') ACTIONS.toggleProjection();
+  else if (key === 'o') ACTIONS.toggleOutline();
+  else if (key >= '1' && key <= '8') ACTIONS.selectCone(CONE_ORDER[Number(key) - 1]);
+  else if (key === 'Delete' || key === 'Backspace') { if (state.coneMode) ACTIONS.removeCone(state.selectedCone); else ACTIONS.removeLastClick(); }
+  else return;
+  event.preventDefault();
+});
+
+for (const name of ['timeupdate', 'play', 'pause', 'durationchange']) video.addEventListener(name, refresh);
+// a new frame has arrived under the same clock reading: take it whatever was uploaded before
+for (const name of ['loadeddata', 'seeked']) video.addEventListener(name, () => { state.uploadedTime = null; refresh(); });
+video.addEventListener('error', () => { say(`The video could not be played (${video.error?.message || 'unknown error'})`); refreshBar(); });
+// while playing, redraw every display frame; paused, the seeked event above is what redraws
+function playbackLoop() { if (!video.paused && !video.ended) refresh(); requestAnimationFrame(playbackLoop); }
+
+// fit the canvases to the stage once it has a real size, and again whenever that changes
+function fitStage() {
+  const width = stage.clientWidth, height = stage.clientHeight;
+  if (!(width > 0 && height > 0)) return;
+  const ratio = window.devicePixelRatio || 1;
+  for (const canvas of [picture, overlay]) { canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio); }
+  state.view = state.viewFitted ? {...state.view, width, height} : VeoField.wholeView(width, height);
+  state.viewFitted = true;
+  refresh();
+}
+
+setUpPicture();
+new ResizeObserver(fitStage).observe(stage);
+fitStage();
+refreshBar();
+requestAnimationFrame(playbackLoop);
+</script>
+</body>
+</html>

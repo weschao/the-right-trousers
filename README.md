@@ -45,3 +45,11 @@ Open the native projects with `npx cap open ios` or `npx cap open android`. Buil
 The app also imports `.statto` archives. These are ZIP files containing `data.json`; the importer converts their teams, rosters, games, points, possessions, and passes while retaining the original source records. Historical Statto exports do not include full opponent passing sequences or defender assignments, so defensive yardage is unavailable for those games.
 
 The sample archive and its converted contents are deliberately excluded from Git by `.gitignore`.
+
+### Enhanced Veo tracking
+
+When creating a game with an `app.veo.co` video link, **Use Enhanced Tracker** is checked by default. Uncheck it to use the existing pitch tracker.
+
+The enhanced tracker includes a copy of `ultimate-tracker/Both/tools/veo_field_clicker.html` and its two geometry models. Load the panorama video and lens data using the clicker’s Veo bookmark (or choose local video and `.veo` files), then place at least four field cones. Once fitted, the viewer shows play/pause and the video timeline. **Video setup** reopens calibration controls.
+
+Point lines appear beside the video with its current timestamp filled in. Click the video to record an event’s field coordinates and timestamp; closing the event dialog resumes playback. The existing pitch underneath displays the recorded plays. Calibration and streamed video links are saved with the game; local video files must be selected again after reopening the viewer.
