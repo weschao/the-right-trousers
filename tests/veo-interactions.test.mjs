@@ -108,13 +108,16 @@ test('event dialog uses the left side at full width when the click is near the r
 test('Shift+arrows over the video work after focus returns to an input',()=>{
  const h=clicker();h.context.trackerHoveringVideo=true;let prevented=0;
  h.handlers['key:keydown']({key:'ArrowLeft',shiftKey:true,target:{tagName:'INPUT'},preventDefault(){prevented++;}});
- assert.equal(h.video.currentTime,39);assert.equal(prevented,1);
+ assert.equal(h.video.currentTime,39);
+ h.handlers['key:keydown']({key:'ArrowRight',shiftKey:false,target:{tagName:'INPUT'},preventDefault(){prevented++;}});
+ assert.equal(h.video.currentTime,44);assert.equal(prevented,2);
 });
 test('parent forwards Shift+arrows over video after focus returns to an input',()=>{
  const oldWindow=globalThis.window,oldDocument=globalThis.document;let keydown;
  try{globalThis.window={addEventListener(){}};globalThis.document={addEventListener:(type,fn)=>{if(type==='keydown')keydown=fn;}};
   const tracker=new EnhancedTracker({}),calls=[];let prevented=0;tracker.hoveringVideo=true;tracker.api={handlePlaybackKey:(key,shift)=>calls.push([key,shift])};
   keydown({key:'ArrowRight',shiftKey:true,target:{closest:()=>({})},preventDefault(){prevented++;}});
-  assert.deepEqual(calls,[['ArrowRight',true]]);assert.equal(prevented,1);
+  keydown({key:'ArrowLeft',shiftKey:false,target:{closest:()=>({})},preventDefault(){prevented++;}});
+  assert.deepEqual(calls,[['ArrowRight',true],['ArrowLeft',false]]);assert.equal(prevented,2);
  }finally{if(oldWindow===undefined)delete globalThis.window;else globalThis.window=oldWindow;if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;}
 });
