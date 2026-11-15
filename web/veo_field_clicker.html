@@ -344,7 +344,7 @@ function drawOverlay() {
     if (!at) continue;
     drawMarker(context, at, name === state.selectedCone && state.coneMode ? '#ffd24a' : '#62d862', name.replaceAll('_', ' '));
   }
-  const last = state.clicks.at(-1);
+  const last = trackerConnection?.clickToPlay ? null : state.clicks.at(-1);
   const lastAt = last && screenOfPixel(last.u, last.v);
   if (lastAt) {
     drawMarker(context, lastAt, '#ffe27a', `(${last.x.toFixed(1)}, ${last.y.toFixed(1)})`);
@@ -432,7 +432,7 @@ function refreshBar() {
   element('fit').textContent = state.fitError ? state.fitError
     : camera ? `${state.fit.coneCount} cones · they put the lens ${feetAndInches(camera.heightFeet)} up, the field ${camera.aspect.toFixed(3)} : 1, ${camera.skewDegrees.toFixed(1)}° off square`
     : `${Object.keys(state.cones).length} of 4 cones`;
-  const last = state.clicks.at(-1);
+  const last = trackerConnection?.clickToPlay ? null : state.clicks.at(-1);
   element('readout').textContent = last ? `x ${last.x.toFixed(1)} yd   y ${last.y.toFixed(1)} yd` : '';
   element('message').textContent = state.message;
   element('setup-status').textContent = trackerConnection && (!state.lens || !videoReady()) && state.message !== 'Session loaded' && !state.message.startsWith('Now get the video:') ? state.message : '';
@@ -528,6 +528,7 @@ const ACTIONS = {
   // a click on the picture at stage coordinates (CSS pixels): always pauses; places the selected cone, or reads the field
   clickAt(screenX, screenY) {
     if (trackerBlocked) return null;
+    if (trackerConnection?.clickToPlay) { if (videoReady()) ACTIONS.togglePlay(); return null; }
     if (!state.lens || !videoReady()) return null;
     video.pause();
     const direction = VeoField.screenToDirection(state.view, screenX, screenY);
@@ -690,6 +691,7 @@ function syncTrackerHover() {
 window.VeoTracker = {
   connect(connection) {
     trackerConnection = connection;
+    stage.style.cursor = connection.clickToPlay ? 'pointer' : 'crosshair';
     trackerOpening = !!connection.opening;
     document.body.classList.add('embedded');
     element('close-setup-panel').hidden = !connection.completed;
@@ -787,7 +789,7 @@ stage.addEventListener('pointerleave', () => { trackerPointerInStage = false; sy
 // Drag the pending yellow crosshair to correct its location; dragging elsewhere pans the video.
 let press = null;
 function editableCrosshairAt(at, radius = 18) {
-  const click = trackerCanMoveClick && state.clicks.at(-1), marker = click && screenOfPixel(click.u, click.v);
+  const click = !trackerConnection?.clickToPlay && trackerCanMoveClick && state.clicks.at(-1), marker = click && screenOfPixel(click.u, click.v);
   return marker && Math.hypot(at.x - marker.x, at.y - marker.y) <= radius ? marker : null;
 }
 stage.addEventListener('pointerdown', event => {
@@ -801,7 +803,7 @@ stage.addEventListener('pointerdown', event => {
 });
 stage.addEventListener('pointermove', event => {
   const at = stagePoint(event);
-  if (!press) { stage.style.cursor = editableCrosshairAt(at) ? 'grab' : 'crosshair'; return; }
+  if (!press) { stage.style.cursor = editableCrosshairAt(at) ? 'grab' : trackerConnection?.clickToPlay ? 'pointer' : 'crosshair'; return; }
   if (!press.moved && Math.hypot(at.x - press.start.x, at.y - press.start.y) <= CLICK_SLOP_PIXELS) return;
   press.moved = true;
   if (press.dragClick) ACTIONS.moveClickAt(at.x - press.offset.x, at.y - press.offset.y);
@@ -823,7 +825,7 @@ stage.addEventListener('pointercancel', () => {
     trackerConnection?.onMove?.({...press.original});
     refresh();
   }
-  press = null; stage.style.cursor = 'crosshair';
+  press = null; stage.style.cursor = trackerConnection?.clickToPlay ? 'pointer' : 'crosshair';
 });
 stage.addEventListener('wheel', event => {
   if (event.target.closest('#calibration-controls, #setup-panel')) return;

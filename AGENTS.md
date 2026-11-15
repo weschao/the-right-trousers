@@ -34,3 +34,8 @@ EPT means enhanced pitch tracker.
 ## Stats terminology
 
 - EAPpm means Edge Allowed/point +/-.
+
+## Screen terminology
+
+- PD = player details screen; PS = player statistics.
+- Player Video Library (PVL) is the modal opened by clicking a statistic such as goals, turnovers, or blocks in PD or PS.

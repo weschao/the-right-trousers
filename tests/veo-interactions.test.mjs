@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import {EnhancedTracker} from '../web/enhanced-tracker.js';
+import {EnhancedTracker,EnhancedConnection} from '../web/enhanced-tracker.js';
 
 // Run the actual clicker actions and gesture handlers without video/WebGL rendering.
 const source=fs.readFileSync(new URL('../web/veo_field_clicker.html',import.meta.url),'utf8');
@@ -11,7 +11,7 @@ function clicker(){
  const video={paused:false,currentTime:99,duration:120,pause(){this.paused=true;},play(){this.paused=false;}};
  let pans=0;
  const context=vm.createContext({state,video,window:{},document:{addEventListener:(name,fn)=>handlers['key:'+name]=fn},stage:{style:{},addEventListener:(name,fn)=>handlers[name]=fn,setPointerCapture(){}},
-  screenOfPixel:(u,v)=>({x:u,y:v}),stagePoint:e=>({x:e.clientX,y:e.clientY}),guarded:fn=>fn,refresh(){},say(){},groundPlaneNow:()=>null,veoSecondsNow:()=>99,videoReady:()=>true,
+  screenOfPixel:(u,v)=>({x:u,y:v}),stagePoint:e=>({x:e.clientX,y:e.clientY}),guarded:fn=>fn,refresh(){},say(){},groundPlaneNow:()=>null,veoSecondsNow:()=>99,videoReady:()=>true,frameAt:()=>2970,
   trackerBlocked:true,trackerCanMoveClick:true,trackerHoveringVideo:false,trackerConnection:{onMove:click=>moves.push({...click})},CLICK_SLOP_PIXELS:4,
   VeoField:{screenToDirection:(view,x,y)=>({x,y}),sampleDirection:(lens,p)=>p.x<0?[]:[{u:p.x,v:p.y}],pixelToField:(lens,fit,drift,seconds,u,v)=>v<0?null:{x:u/10,y:v/10},panBy:view=>{pans++;return view;}}});
  vm.runInContext(source.slice(source.indexOf('const ACTIONS = {'),source.indexOf('window.ACTIONS = ACTIONS;')+'window.ACTIONS = ACTIONS;'.length),context);
@@ -120,4 +120,64 @@ test('parent forwards Shift+arrows over video after focus returns to an input',(
   keydown({key:'ArrowLeft',shiftKey:false,target:{closest:()=>({})},preventDefault(){prevented++;}});
   assert.deepEqual(calls,[['ArrowRight',true],['ArrowLeft',false]]);assert.equal(prevented,2);
  }finally{if(oldWindow===undefined)delete globalThis.window;else globalThis.window=oldWindow;if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;}
+});
+
+function connectionHarness(options={},loaded=true){
+ const loads=new Map(),keys=new Map(),seeks=[];let callbacks,pauses=0;
+ const api={connect(value){callbacks=value;},seekVeo(seconds){seeks.push(seconds);callbacks.onReady(false);callbacks.onReady(true);},pause(){pauses++;}};
+ const frame={addEventListener:(name,fn)=>loads.set(name,fn),removeEventListener:name=>loads.delete(name),contentWindow:{VeoTracker:loaded?api:null,addEventListener:(name,fn)=>keys.set(name,fn),removeEventListener:name=>keys.delete(name)}};
+ const game={videoLink:'https://app.veo.co/matches/example',field:{length:110,width:40},veoSession:{video_time:7}};
+ const connection=new EnhancedConnection(frame,game,options).start();
+ return {connection,frame,api,game,loads,keys,seeks,callbacks:()=>callbacks,pauses:()=>pauses};
+}
+test('both viewer modes share one-shot seeking through readiness changes',()=>{
+ for(const options of [{opening:true,completed:false},{opening:false,completed:true,captureEscape:true}]){
+  const h=connectionHarness({...options,initialSeconds:42}),callbacks=h.callbacks();
+  assert.equal(callbacks.url,h.game.videoLink);assert.equal(callbacks.session,h.game.veoSession);
+  assert.equal(callbacks.opening,options.opening);assert.equal(callbacks.completed,options.completed);
+  callbacks.onReady(false);assert.deepEqual(h.seeks,[]);callbacks.onReady(true);callbacks.onReady(false);callbacks.onReady(true);assert.deepEqual(h.seeks,[42]);
+  h.connection.seek(0);callbacks.onReady(true);assert.deepEqual(h.seeks,[42,0]);
+ }
+ const h=connectionHarness();h.callbacks().onReady(true);assert.deepEqual(h.seeks,[]);
+});
+test('shared connection waits for iframe load, connects once and cancels pending work on disposal',()=>{
+ let saved=0;const h=connectionHarness({initialSeconds:10,onSession:()=>saved++},false);
+ assert.equal(h.callbacks(),undefined);h.frame.contentWindow.VeoTracker=h.api;h.loads.get('load')();
+ const callbacks=h.callbacks();h.loads.get('load')();assert.equal(h.callbacks(),callbacks);
+ callbacks.onSession({});assert.equal(saved,1);h.connection.dispose();callbacks.onReady(true);callbacks.onSession({});
+ assert.deepEqual(h.seeks,[]);assert.equal(saved,1);assert.equal(h.loads.size,0);assert.equal(h.pauses(),1);
+});
+test('PVL Escape is handled by the shared connection and its listener is removed on exit',()=>{
+ let exits=0,prevented=0,stopped=0;const h=connectionHarness({captureEscape:true,onEscape:()=>exits++});
+ h.keys.get('keydown')({key:'Escape',preventDefault:()=>prevented++,stopImmediatePropagation:()=>stopped++});
+ assert.equal(exits,1);assert.equal(prevented,1);assert.equal(stopped,1);h.connection.dispose();assert.equal(h.keys.size,0);
+ const live=connectionHarness();assert.equal(live.keys.size,0);
+});
+test('live tracker uses the shared connection and retains recording and session callbacks',()=>{
+ const originalDocument=globalThis.document,h=connectionHarness(),game={...h.game,events:[],finished:false};h.connection.dispose();let saved=0,clicked=0;
+ try{
+  globalThis.document={querySelector:()=>h.frame};h.frame.getBoundingClientRect=()=>({left:10,top:20});
+  const tracker=Object.assign(Object.create(EnhancedTracker.prototype),{onReady(){},onSave:()=>saved++,onClick:()=>clicked++});tracker.bind(game);
+  assert.ok(tracker.connection instanceof EnhancedConnection);const callbacks=h.callbacks();callbacks.onReady(true);tracker.seek(25);assert.deepEqual(h.seeks,[25]);
+  callbacks.onSession({video_time:25});assert.equal(game.veoSession.video_time,25);assert.equal(saved,1);
+  callbacks.onClick({screenX:3,screenY:4,u:5,v:6});assert.equal(clicked,1);assert.equal(tracker.anchor.x,13);
+  const review=connectionHarness({completed:true,opening:false});assert.equal(review.callbacks().onSession,undefined);assert.equal(review.callbacks().onClick,undefined);
+ }finally{if(originalDocument===undefined)delete globalThis.document;else globalThis.document=originalDocument;}
+});
+
+test('PVL field clicks toggle playback without creating or dragging locations; drags still pan',()=>{
+ const h=clicker();h.context.trackerConnection.clickToPlay=true;h.context.trackerBlocked=false;
+ const before=JSON.stringify(h.state.clicks),tap=()=>{h.handlers.pointerdown(h.pointer(100,100));h.handlers.pointerup(h.pointer(100,100));};
+ tap();assert.equal(h.video.paused,true);tap();assert.equal(h.video.paused,false);
+ assert.equal(JSON.stringify(h.state.clicks),before);assert.equal(h.moves.length,0);
+ h.handlers.pointerdown(h.pointer(100,100));h.handlers.pointermove(h.pointer(200,200));h.handlers.pointerup(h.pointer(200,200));
+ assert.equal(h.pans(),1);assert.equal(h.video.paused,false);assert.equal(JSON.stringify(h.state.clicks),before);
+ h.handlers.pointermove(h.pointer(100,100));assert.equal(h.context.stage.style.cursor,'pointer');
+});
+
+test('live EPT field clicks still capture a location and pause playback',()=>{
+ const h=clicker();h.context.trackerBlocked=false;h.context.trackerCanMoveClick=false;
+ h.handlers.pointerdown(h.pointer(200,100));h.handlers.pointerup(h.pointer(200,100));
+ assert.equal(h.video.paused,true);assert.equal(h.state.clicks.length,2);
+ assert.equal(h.state.clicks.at(-1).x,20);assert.equal(h.state.clicks.at(-1).y,10);
 });
