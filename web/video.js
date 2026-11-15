@@ -14,8 +14,8 @@ export function pointVideos(game){const result=importedPointVideos(game),source=
 
 // a link into the game video at one timestamp, built the same way as a manual point timestamp
 export function timestampLink(game,timestamp){const source=videoSource(game.videoLink),seconds=timestampSeconds(timestamp);if(!source||seconds===null)return null;const url=new URL(source.kind==='youtube'?`https://www.youtube.com/watch?v=${source.id}`:source.url);if(source.kind==='veo')url.hash='t='+normalizeTimestamp(timestamp).split('.')[0];else{url.searchParams.set('t',Math.floor(seconds)+'s');url.hash='';}return url.href;}
-// Event links start at the immediately preceding event, falling back to the point video.
-export function eventVideoLink(game,event,pointLink=null){const index=event?.id?game.events.findIndex(item=>item.id===event.id):-1,previous=index>0?game.events[index-1]:null;return (previous?.videoTimestamp&&timestampLink(game,previous.videoTimestamp))||pointLink||videoSource(game.videoLink)?.url||null;}
+// Prefer the event timestamp, then the preceding event and point video.
+export function eventVideoLink(game,event,pointLink=null){const index=event?.id?game.events.findIndex(item=>item.id===event.id):-1,previous=index>0?game.events[index-1]:null;return (event?.videoTimestamp&&timestampLink(game,event.videoTimestamp))||(previous?.videoTimestamp&&timestampLink(game,previous.videoTimestamp))||pointLink||videoSource(game.videoLink)?.url||null;}
 // the timestamp a point link jumps to, or an empty string when it is a plain game link
 export function linkTimestamp(link){try{const url=new URL(link),hashed=url.hash.match(/^#t=(.+)$/)?.[1];if(hashed)return hashed;const value=url.searchParams.get('t');if(!value||!/^\d+(?:\.\d{1,2})?s?$/.test(value))return '';const hundredths=Math.round(parseFloat(value)*100),whole=Math.floor(hundredths/100),hours=Math.floor(whole/3600),minutes=Math.floor(whole%3600/60),rest=String(whole%60).padStart(2,'0'),fraction=hundredths%100?'.'+String(hundredths%100).padStart(2,'0'):'';return hours?`${hours}:${String(minutes).padStart(2,'0')}:${rest}${fraction}`:`${minutes}:${rest}${fraction}`;}catch{return '';}}
 

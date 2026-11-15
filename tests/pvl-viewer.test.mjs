@@ -8,7 +8,7 @@ const navigation=source.slice(source.indexOf(" const dialog=$('#modal'),nativeLi
 const restore=source.slice(source.indexOf('function restorePvl()'),source.indexOf('function closeModal()'));
 const classes=()=>{const values=new Set();return {add:value=>values.add(value),remove:value=>values.delete(value),contains:value=>values.has(value),toggle(value,on){if(on)values.add(value);else values.delete(value);}};};
 function library(){
- const gameA={id:'a',videoLink:'veo-a',events:[{id:'lead',videoTimestamp:'0:05'},{id:'one'},{id:'lead2',videoTimestamp:'0:20'},{id:'two'}]},gameB={id:'b',videoLink:'veo-b',events:[{id:'lead',videoTimestamp:'1:00'},{id:'three'}]};
+ const gameA={id:'a',videoLink:'veo-a',events:[{id:'lead',videoTimestamp:'0:05'},{id:'one',videoTimestamp:'0:09'},{id:'lead2',videoTimestamp:'0:20'},{id:'two'}]},gameB={id:'b',videoLink:'veo-b',events:[{id:'lead',videoTimestamp:'1:00'},{id:'three'}]};
  const rows=[{game:gameA,event:gameA.events[1],pointIndex:0},{game:{id:'disabled'}},{game:gameA,event:gameA.events[3],pointIndex:0},{game:gameB,event:gameB.events[1],pointIndex:0}],tableRows=rows.map(()=>({classList:classes(),hidden:false,isConnected:true}));
  tableRows.forEach(row=>row.parentElement={rows:tableRows});
  const links=[0,2,3].map(index=>({dataset:{pvlNative:String(index)},closest:()=>tableRows[index],focus(){this.focused=true;}})),connections=[];
@@ -22,7 +22,7 @@ function library(){
 }
 test('PVL navigation follows enabled plays, reuses the same game viewer and focuses playback immediately',()=>{
  const h=library();h.links[0].onclick({preventDefault(){}});
- assert.equal(h.connections.length,1);assert.equal(h.connections[0].options.initialSeconds,5);assert.equal(h.connections[0].focuses,1);
+ assert.equal(h.connections.length,1);assert.equal(h.connections[0].options.initialSeconds,9);assert.equal(h.connections[0].focuses,1);
  const previous=h.viewer().querySelector('[data-pvl-previous]'),next=h.viewer().querySelector('[data-pvl-next]');
  assert.equal(previous.disabled,true);assert.equal(next.disabled,false);
  next.onclick();assert.equal(h.connections.length,1);assert.deepEqual(h.connections[0].seeks,[20]);assert.equal(h.connections[0].focuses,2);
