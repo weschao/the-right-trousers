@@ -665,7 +665,7 @@ window.ACTIONS = ACTIONS;
 // Embedded Right Trousers integration. Standalone use retains the original controls.
 let trackerOpening = false;
 let trackerConnection = null, trackerDirty = false, trackerWasReady = false, trackerBlocked = false, trackerCanMoveClick = false, trackerPointerInStage = false, trackerHoveringVideo = false, trackerPendingSeek = null;
-const trackerReady = () => !!state.fit && !state.coneMode && videoReady();
+const trackerReady = () => videoReady() && (trackerConnection?.clickToPlay ? !!state.lens : !!state.fit && !state.coneMode);
 function trackerSession() {
   return {...ACTIONS.exportSession(), clicks: [], video_time: video.currentTime, view: state.view};
 }

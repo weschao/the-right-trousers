@@ -33,3 +33,12 @@ test('PVL navigation follows enabled plays, reuses the same game viewer and focu
  previous.onclick();assert.equal(h.connections.length,3);assert.equal(h.connections[1].disposed,true);
  h.restore();assert.equal(h.connections[2].disposed,true);assert.equal(h.viewer(),null);assert.deepEqual(h.tableRows.map(row=>row.hidden),[false,false,false,false]);assert.equal(h.dialog.classList.contains('pvl-fullscreen'),false);
 });
+
+test('PVL becomes ready without field calibration when video and lens are loaded',()=>{
+ const html=fs.readFileSync(new URL('../web/veo_field_clicker.html',import.meta.url),'utf8');
+ const definition=html.match(/const trackerReady = .*;/)[0];
+ const context=vm.createContext({state:{fit:null,coneMode:false,lens:{}},trackerConnection:{clickToPlay:true},videoReady:()=>true});
+ assert.equal(vm.runInContext(definition+' trackerReady()',context),true);
+ context.trackerConnection.clickToPlay=false;
+ assert.equal(vm.runInContext('trackerReady()',context),false);
+});
