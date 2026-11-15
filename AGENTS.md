@@ -2,6 +2,8 @@
 
 Ultimate frisbee stat tracker. Static web app in `web/` (no framework, minified one-line style), wrapped by Capacitor for iOS/Android.
 
+EPT means enhanced pitch tracker.
+
 ## Running and verifying
 
 - Wes runs the app with `npm start` (serves `web/` on port 4173) in his own terminal. **Never `pkill` serve.mjs or stop that server.** If you need your own server, use another port (`PORT=4174 node scripts/serve.mjs`); note a different port is a different origin with an empty IndexedDB.
