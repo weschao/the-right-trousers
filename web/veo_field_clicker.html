@@ -692,6 +692,7 @@ window.VeoTracker = {
   screenOfPixel,
   ready: trackerReady,
   seconds: veoSecondsNow,
+  seekVeo(seconds) { const target = Math.max(0, seconds - state.videoStartVeoSeconds); if (video.readyState) ACTIONS.seek(target); else trackerPendingSeek = target; },
   pause() { video.pause(); },
   focus() { stage.focus({preventScroll: true}); },
   play() { if (trackerReady()) video.play().catch(error => { say(error.message); refreshBar(); }); },
