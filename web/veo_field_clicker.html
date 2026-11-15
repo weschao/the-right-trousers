@@ -47,6 +47,11 @@
   body.embedded #setup-entry input { box-sizing: border-box; width: 100%; padding: 12px 14px; font-size: 16px; }
   body.embedded #setup-status { color: #f0b46a; font-size: 13px; }
   body.embedded.media-loaded #hint { display: none; }
+  #cone-notice { display: none; position: absolute; z-index: 1; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    padding: 12px 18px; border: 1px solid #777; border-radius: 8px; background: rgba(27, 27, 27, .92);
+    color: #fff; font-size: 15px; text-align: center; pointer-events: none; }
+  body.embedded.needs-cones #cone-notice, body.embedded.opening-ready #cone-notice { display: block; }
+  #cone-notice button { display: block; margin: 10px auto 0; padding: 7px 18px; pointer-events: auto; }
   body.embedded #calibration-controls { display: none; position: absolute; z-index: 2; top: 12px; left: 12px; right: 12px;
     max-height: min(35%, 220px); box-sizing: border-box; overflow: auto; padding: 10px 12px; margin: 0;
     border: 1px solid #555; border-radius: 8px; background: rgba(27, 27, 27, .9); cursor: default; }
@@ -63,6 +68,7 @@
   <canvas id="picture"></canvas>
   <canvas id="overlay"></canvas>
   <button id="crosshair-handle" aria-label="Drag event location" title="Drag event location" hidden></button>
+  <div id="cone-notice" role="status"><span id="cone-notice-text">Cone locations not set; please click at least four cones</span><button id="begin-game" hidden>Begin</button></div>
   <div id="hint"><div id="setup-panel"><p id="setup-instructions"></p><div id="setup-bookmark"></div><div id="setup-entry"></div><p id="setup-status" role="status"></p></div></div>
   <video id="video" playsinline preload="auto" crossorigin="anonymous"></video>
 </div>
@@ -132,7 +138,7 @@
 // 0.3% of a frame over a game). used only for the frame number shown and for stepping
 const VEO_FRAME_RATE = 30000 / 1001;
 const CLICK_SLOP_PIXELS = 4;
-const CONE_ORDER = ['A_back_far', 'A_back_near', 'B_back_far', 'B_back_near', 'A_goal_far', 'A_goal_near', 'B_goal_far', 'B_goal_near'];
+const CONE_ORDER = ['A_goal_near', 'A_back_near', 'A_back_far', 'A_goal_far', 'B_goal_near', 'B_back_near', 'B_back_far', 'B_goal_far'];
 const SESSION_SCHEMA = 'ultimate-tracker/veo-field-clicker/1';
 const element = id => document.getElementById(id);
 const stage = element('stage'), picture = element('picture'), overlay = element('overlay'), video = element('video');
@@ -530,7 +536,7 @@ const ACTIONS = {
       state.cones[state.selectedCone] = {u: sample.u, v: sample.v, seconds};
       refit();
       const next = CONE_ORDER.find(name => !state.cones[name]);
-      if (state.fit && !hadFit) { state.coneMode = false; say('Field fitted. Click anywhere on the field.'); }
+      if (state.fit && !hadFit) { state.coneMode = false; if (next) state.selectedCone = next; say('Field fitted. Click anywhere on the field.'); }
       else if (next) { state.selectedCone = next; say(state.fitError || `Click the ${next.replaceAll('_', ' ')} cone`); }
       else { state.coneMode = false; say(state.fitError || 'All eight cones placed.'); }
       refresh();
@@ -653,6 +659,7 @@ const ACTIONS = {
 window.ACTIONS = ACTIONS;
 
 // Embedded Right Trousers integration. Standalone use retains the original controls.
+let trackerOpening = false;
 let trackerConnection = null, trackerDirty = false, trackerWasReady = false, trackerBlocked = false, trackerCanMoveClick = false, trackerPointerInStage = false, trackerHoveringVideo = false, trackerPendingSeek = null;
 const trackerReady = () => !!state.fit && !state.coneMode && videoReady();
 function trackerSession() {
@@ -665,6 +672,12 @@ function trackerRefresh() {
   syncTrackerHover();
   document.body.classList.toggle('media-loaded', loaded);
   document.body.classList.toggle('calibrating', loaded && state.coneMode);
+  const coneCount = Object.keys(state.cones).length;
+  document.body.classList.toggle('needs-cones', loaded && coneCount < 4);
+  document.body.classList.toggle('opening-ready', loaded && trackerOpening && coneCount >= 4 && !trackerBlocked);
+  element('cone-notice-text').textContent = coneCount < 4 ? 'Cone locations not set; please click at least four cones' : `${coneCount} cones clicked; begin when the first pull is released${coneCount < 8 ? ' or add more cones' : ''}`;
+  element('begin-game').hidden = coneCount < 4 || !trackerOpening;
+  element('begin-game').disabled = !state.fit;
   document.body.classList.toggle('tracking', ready);
   if (trackerDirty) { trackerDirty = false; trackerConnection.onSession?.(trackerSession()); }
   if (ready !== trackerWasReady) { trackerWasReady = ready; trackerConnection.onReady?.(ready); }
@@ -676,6 +689,7 @@ function syncTrackerHover() {
 window.VeoTracker = {
   connect(connection) {
     trackerConnection = connection;
+    trackerOpening = !!connection.opening;
     document.body.classList.add('embedded');
     element('setup-entry').append(element('veoUrl'));
     element('veoUrl').placeholder = 'Paste here';
@@ -691,6 +705,7 @@ window.VeoTracker = {
     }
     trackerRefresh();
   },
+  setOpening(opening) { trackerOpening = !!opening; trackerRefresh(); },
   screenOfPixel,
   ready: trackerReady,
   seconds: veoSecondsNow,
@@ -698,7 +713,7 @@ window.VeoTracker = {
   pause() { video.pause(); },
   focus() { stage.focus({preventScroll: true}); },
   play() { if (trackerReady()) video.play().catch(error => { say(error.message); refreshBar(); }); },
-  block(on, moveClick = false) { trackerBlocked = !!on; trackerCanMoveClick = trackerBlocked && !!moveClick; drawOverlay(); },
+  block(on, moveClick = false) { trackerBlocked = !!on; trackerCanMoveClick = trackerBlocked && !!moveClick; drawOverlay(); trackerRefresh(); },
   handlePlaybackKey,
   configure() { ACTIONS.setConeMode(!state.coneMode); },
   save() { return trackerSession(); },
@@ -708,6 +723,14 @@ video.addEventListener('loadedmetadata', () => {
 });
 for (const name of ['pause', 'seeked']) video.addEventListener(name, () => {
   if (trackerConnection) trackerConnection.onSession?.(trackerSession());
+});
+
+element('begin-game').addEventListener('pointerdown', event => event.stopPropagation());
+element('begin-game').addEventListener('click', event => {
+  event.stopPropagation();
+  if (!state.fit) return;
+  if (state.coneMode) ACTIONS.setConeMode(false);
+  trackerConnection?.onBegin?.();
 });
 
 // ---- events: each one only calls an action ----
