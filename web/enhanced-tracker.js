@@ -1,7 +1,7 @@
 // The copied Veo clicker runs in a persistent same-origin frame. Recording a play
 // updates the surrounding tracker without unloading its video or WebGL context.
 export function isVeoLink(value){try{const url=new URL(/^app\.veo\.co(?:[/?#]|$)/i.test(String(value).trim())?'https://'+String(value).trim():value);return ['http:','https:'].includes(url.protocol)&&url.hostname.toLowerCase()==='app.veo.co';}catch{return false;}}
-export function videoTimestamp(seconds){const whole=Math.max(0,Math.floor(seconds)),hours=Math.floor(whole/3600),minutes=Math.floor(whole%3600/60),rest=String(whole%60).padStart(2,'0');return hours?`${hours}:${String(minutes).padStart(2,'0')}:${rest}`:`${minutes}:${rest}`;}
+export function videoTimestamp(seconds){const hundredths=Math.max(0,Math.round(seconds*100)),whole=Math.floor(hundredths/100),hours=Math.floor(whole/3600),minutes=Math.floor(whole%3600/60),rest=String(whole%60).padStart(2,'0'),fraction=String(hundredths%100).padStart(2,'0');return hours?`${hours}:${String(minutes).padStart(2,'0')}:${rest}.${fraction}`:`${minutes}:${rest}.${fraction}`;}
 export function clickMetadata(click){return {videoTimestamp:videoTimestamp(click.veoSeconds),videoSeconds:click.videoSeconds,veoSeconds:click.veoSeconds};}
 export function clickLocation(click,field){return {x:Math.max(0,Math.min(field.length,click.x)),y:Math.max(0,Math.min(field.width,click.y))};}
 export const enhancedEnabled=g=>!!g?.enhancedTracker&&isVeoLink(g.videoLink);

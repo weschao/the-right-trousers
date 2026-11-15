@@ -14,9 +14,9 @@ test('enhanced tracking is opt-in per game and limited to the Veo app host',()=>
 });
 test('video event timestamps retain exact seconds and produce existing watch links',()=>{
  const click={videoSeconds:12.456,veoSeconds:3723.456,x:30.2,y:12.1};
- assert.deepEqual(clickMetadata(click),{videoTimestamp:'1:02:03',videoSeconds:12.456,veoSeconds:3723.456});
+ assert.deepEqual(clickMetadata(click),{videoTimestamp:'1:02:03.46',videoSeconds:12.456,veoSeconds:3723.456});
  assert.equal(timestampLink({videoLink:'https://app.veo.co/matches/game/'},clickMetadata(click).videoTimestamp),'https://app.veo.co/matches/game/#t=1:02:03');
- assert.equal(videoTimestamp(0),'0:00');assert.equal(videoTimestamp(59.999),'0:59');assert.equal(videoTimestamp(60),'1:00');
+ assert.equal(videoTimestamp(0),'0:00.00');assert.equal(videoTimestamp(59.999),'1:00.00');assert.equal(videoTimestamp(60),'1:00.00');
 });
 test('video clicks use the same field coordinate frame and boundary limits as the pitch',()=>{
  const field={length:110,width:40};
