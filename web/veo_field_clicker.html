@@ -24,6 +24,7 @@
   button { cursor: pointer; } button:hover { background: #353535; }
   button.on { background: #7a5c00; border-color: #c79a00; color: #fff; }
   input[type=number] { width: 52px; } #veoUrl { width: 300px; } #seek { flex: 1; min-width: 160px; padding: 0; }
+  #seek-tooltip { position: fixed; z-index: 10; transform: translate(-50%, -100%); background: #111; color: #fff; border: 1px solid #555; border-radius: 4px; padding: 3px 6px; font-variant-numeric: tabular-nums; pointer-events: none; }
   a { color: #7fb7ff; }
   .cone { border-color: #555; } .cone.set { border-color: #3c8a3c; color: #bfe8bf; } .cone.selected { background: #7a5c00; border-color: #c79a00; color: #fff; }
   #readout { font-size: 20px; font-weight: 600; color: #ffe27a; min-width: 230px; font-variant-numeric: tabular-nums; }
@@ -91,6 +92,7 @@
       <span id="time"></span>
     </div>
     <input id="seek" aria-label="Video timeline" type="range" min="0" max="0" step="0.001" value="0">
+    <span id="seek-tooltip" hidden></span>
     <div class="group">
       <button id="resetButton" title="r">Whole field</button>
       <button id="projectionButton" title="p"></button>
@@ -734,6 +736,16 @@ element('exportButton').addEventListener('click', () => ACTIONS.downloadSession(
 element('playButton').addEventListener('click', () => ACTIONS.togglePlay());
 element('backButton').addEventListener('click', event => ACTIONS.stepFrames(event.shiftKey ? -10 : -1));
 element('forwardButton').addEventListener('click', event => ACTIONS.stepFrames(event.shiftKey ? 10 : 1));
+element('seek').addEventListener('pointermove', event => {
+  const tooltip = element('seek-tooltip'), rect = event.currentTarget.getBoundingClientRect();
+  if (!Number.isFinite(video.duration) || video.duration <= 0 || !rect.width) { tooltip.hidden = true; return; }
+  const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+  tooltip.textContent = formatTime(fraction * video.duration);
+  tooltip.style.left = `${Math.max(30, Math.min(window.innerWidth - 30, event.clientX))}px`;
+  tooltip.style.top = `${rect.top - 6}px`;
+  tooltip.hidden = false;
+});
+element('seek').addEventListener('pointerleave', () => { element('seek-tooltip').hidden = true; });
 element('seek').addEventListener('input', event => ACTIONS.seek(Number(event.target.value)));
 // a control that keeps the focus would swallow the next space or arrow key, and a focused slider stops following
 element('seek').addEventListener('change', event => event.target.blur());
