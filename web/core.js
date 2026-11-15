@@ -309,6 +309,9 @@ export function recordPointMatchup(game,pointId,{offenseId=null,defenderId,clear
 export function matchupCoverage(game){
  const rows=new Map(),row=id=>{if(!rows.has(id))rows.set(id,{offensePoints:0,offenseAssigned:0,offenseMissing:[],defensePoints:0,defenseAssigned:0,defenseMissing:[]});return rows.get(id);};
  for(const [pointIndex,point] of pointsOf(game).entries()){
+  const startIndex=game.events.findIndex(e=>e.id===point.id),initialForces={us:null,them:null};
+  for(const e of game.events.slice(0,startIndex))if(e.type==='force')initialForces[e.side]=e.force;
+  const zoneThroughout=side=>{let force=initialForces[other(side)],started=false,zone=true;for(const e of point.events){if(e.type==='force'&&e.side===other(side)){force=e.force;if(started&&force!=='zone')zone=false;}else if(e.type==='possession_start'||e.type==='pass'||e.type==='turnover'){started=true;if(force!=='zone')zone=false;if(e.type==='pass'&&e.side===side&&e.force&&e.force!=='zone')zone=false;}}return started&&zone;};
   const assigned=new Set(pointMatchups(point).flat());
   for(const [side,line] of [['us',point.line],['them',point.opponentLine]]){
    const roles=sideRoles(point,side),substitutionEvents=point.events.filter(e=>e.type==='substitution'&&e.side===side),substitutions=substitutionEvents.flatMap(e=>[e.outId,e.inId]);
@@ -316,7 +319,7 @@ export function matchupCoverage(game){
    for(const e of substitutionEvents)if(e.outId&&e.inId&&(assigned.has(e.outId)||assigned.has(e.inId))){assigned.add(e.outId);assigned.add(e.inId);}
    for(const id of new Set([...line,...substitutions].filter(Boolean))){
     const counts=row(id);
-    if(roles.offense){counts.offensePoints++;if(assigned.has(id))counts.offenseAssigned++;else counts.offenseMissing.push(pointIndex+1);}
+    if(roles.offense){counts.offensePoints++;if(assigned.has(id))counts.offenseAssigned++;else if(!zoneThroughout(side))counts.offenseMissing.push(pointIndex+1);}
     if(roles.defense){counts.defensePoints++;if(assigned.has(id))counts.defenseAssigned++;else counts.defenseMissing.push(pointIndex+1);}
    }
   }

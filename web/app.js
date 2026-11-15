@@ -421,7 +421,7 @@ function matchupGapsFor(g){
  const gaps={};
  for(const [id,counts] of matchupCoverage(g)){
   const messages=[];
-  if(counts.offenseAssigned!==counts.offensePoints)messages.push('Defender not assigned for some O points');
+  if(counts.offenseMissing.length)messages.push('Defender not assigned for some O points');
   if(counts.defenseAssigned!==counts.defensePoints)messages.push('Mark not assigned for some D points');
   if(messages.length)gaps[id]=messages;
  }

@@ -49,3 +49,12 @@ test('a substituted player and their substitute share one matchup slot in covera
   assert.deepEqual(coverage.get('b').offenseMissing,[1]);
  }
 });
+test('zone throughout a point does not report missing offensive matchups',()=>{
+ const g=game();
+ g.events.push({type:'force',side:'them',force:'zone'},{type:'possession_start',side:'us'},{type:'pass',side:'us',force:'zone'});
+ assert.deepEqual(matchupCoverage(g).get('a').offenseMissing,[]);
+ g.events.push({type:'point_start',id:'second',line:['a'],opponentLine:['x'],starting:'O'},{type:'possession_start',side:'us'});
+ assert.deepEqual(matchupCoverage(g).get('a').offenseMissing,[]);
+ g.events.push({type:'force',side:'them',force:'forehand'},{type:'pass',side:'us',force:'forehand'});
+ assert.deepEqual(matchupCoverage(g).get('a').offenseMissing,[2]);
+});
