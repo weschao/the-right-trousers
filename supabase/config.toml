@@ -1,0 +1,7 @@
+project_id = "the-right-trousers"
+
+[functions.trt-api]
+# The function validates the user token with Supabase Auth on every request.
+# This also supports projects using the new publishable API keys.
+verify_jwt = false
+entrypoint = "./functions/trt-api/index.js"

@@ -1,0 +1,83 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {PGlite} from '@electric-sql/pglite';
+import {createApi} from '../supabase/functions/trt-api/index.js';
+import {permits,hasPermission} from '../web/access.js';
+import {changedRecords,CloudStore} from '../web/cloud.js';
+import {emptyData,FIELD,advancedStatsFor,statsFor} from '../web/core.js';
+import {playerProjection} from '../web/player-projection.js';
+import {createHash} from 'node:crypto';
+import vm from 'node:vm';
+import * as core from '../web/core.js';
+
+const ids={admin:'00000000-0000-4000-8000-000000000001',player:'00000000-0000-4000-8000-000000000002',stats:'00000000-0000-4000-8000-000000000003',leader:'00000000-0000-4000-8000-000000000004',unverified:'00000000-0000-4000-8000-000000000005'};
+const teamA={id:'a',name:'Team A',players:[{id:'ann',name:'Ann'},{id:'bo',name:'Bo'}],privateSource:'must-not-leak'},teamB={id:'b',name:'Team B',players:[{id:'opp',name:'Opp'}]};
+const game={id:'g',teamId:'a',opponent:'Team B',opponentTeamId:'b',date:'2026-11-16',finished:true,field:FIELD,opponents:teamB.players,videoLink:'https://www.youtube.com/watch?v=abcdefghijk',videoTimestamps:'',revisions:[{secret:'private-edit-history'}],events:[{id:'p',type:'point_start',line:['ann','bo'],opponentLine:['opp'],starting:'O',direction:1},{id:'pos',type:'possession_start',side:'us',playerId:'ann',location:{x:30,y:20}},{id:'pass',type:'pass',side:'us',throwerId:'ann',receiverId:'bo',opponentMarkerId:'opp',from:{x:30,y:20},to:{x:105,y:20},outcome:'goal',videoTimestamp:'1:23',notes:'Nice catch'},{id:'end',type:'point_end',winner:'us'}]};
+const fixture=()=>({...emptyData(),teams:structuredClone([teamA,teamB]),games:structuredClone([game]),sources:[{id:'source',secret:'private-source-record'}]});
+
+test('roles combine permissions by team without promoting a stats user on another team',()=>{const context={memberships:[{team_id:'a',role:'leadership'},{team_id:'b',role:'stats'}]};assert.equal(permits(context,'library.read','a'),true);assert.equal(permits(context,'library.read','b'),false);assert.equal(permits(context,'games.update','b'),true);assert.equal(permits(context,'teams.update','b'),false);assert.equal(permits(context,'library.read'),false);assert.equal(hasPermission(context,'library.read'),true);assert.equal(permits({admin:true},'library.read','anything'),true);});
+
+test('PD projections match shared stat calculations and never return raw games',()=>{const data=fixture(),result=playerProjection(data,'a','bo'),row=statsFor(data.teams,data.games).find(r=>r.id==='bo'),advanced=advancedStatsFor(game,teamA).rows.find(r=>r.id==='bo');assert.equal(result.summary.goals,row.goals);assert.equal(result.summary.totalEdge,advanced.totalEdge);assert.equal(result.summary.totalEdgePerPoint,advanced.totalEdgePerPoint);assert.equal(result.clips.goals[0].videoUrl,'https://www.youtube.com/watch?v=abcdefghijk&t=83s');assert.equal(result.clips.goals[0].notes,'Nice catch');assert.equal(result.received[0].name,'Ann');const json=JSON.stringify(result);for(const privateValue of ['private-source-record','private-edit-history','must-not-leak','"events"','"revisions"','"passes"'])assert.equal(json.includes(privateValue),false,privateValue);assert.equal(playerProjection(data,'a','bo',{gameIds:['unavailable']}).summary.goals,0);});
+
+test('server PD matchup numbers match the existing PD calculations on a recorded game',async()=>{
+ const data=JSON.parse(await readFile(new URL('./fixtures/polar-bears-2026-10-06.json',import.meta.url),'utf8')),source=await readFile(new URL('../web/app.js',import.meta.url),'utf8'),extract=(start,end)=>source.slice(source.indexOf(start),source.indexOf(end,source.indexOf(start)));
+ const functions=[['function seasonAdvancedStats','function seasonAdvancedForTeams'],['function defenseEdgeComparisons','function guardedPointsByOpponent'],['function guardedPointsByOpponent','function totalDefenseEdgeComparison'],['function pointAdvancedRows',"// every player's breakdown"],['function cachedMatchupBreakdown','function gameOse'],['function gameOse','function pointScoreLabel'],['function seasonMatchupTables','// inserts an empty point']].map(([a,b])=>extract(a,b)).join('\n');
+ for(const player of data.teams[0].players){const captured=[],context=vm.createContext({...core,data,huckYards:35,seasonOseCache:new Map(),matchupBreakdownCache:new Map(),pointAdvancedCache:new Map(),secondaryEdgeSettings:()=>({previousShare:data.settings.secondaryPreviousShare,previousPreviousShare:data.settings.secondaryPreviousPreviousShare,includeInTotal:data.settings.includeSecondaryInTotal}),relevantGames:()=>core.gamesForTeam(data,data.teams[0].id),OFFENSE_BREAKDOWN_HELP:'',DEFENSE_BREAKDOWN_HELP:'',SEASON_OFFENSE_BREAKDOWN_COLUMNS:[],DEFENSE_BREAKDOWN_COLUMNS:[],renderBreakdown:rows=>{captured.push(rows);return '';}});
+  vm.runInContext(functions+`\nseasonMatchupTables(${JSON.stringify(player.id)})`,context);const projected=playerProjection(data,data.teams[0].id,player.id);
+  for(const [index,side] of ['offense','defense'].entries()){assert.equal(projected.matchups[side].length,captured[index].length);for(const expected of captured[index]){const actual=projected.matchups[side].find(r=>r.opponentId===expected.opponentId&&r.teamName===expected.teamName);assert.ok(actual);for(const [key,value] of Object.entries(expected))if(typeof value==='number')assert.ok(Object.is(actual[key],value)||Math.abs(actual[key]-value)<1e-9,`${player.name} ${side} ${key}: ${actual[key]} != ${value}`);}}
+ }
+});
+
+test('record diffs carry expected revisions and deletions without rewriting unchanged games',()=>{const before=fixture(),after=structuredClone(before);after.games[0].opponent='Changed';after.teams.pop();const changes=changedRecords(before,after,{'game:g':8,'team:b':3});assert.equal(changes.length,2);assert.equal(changes.find(c=>c.kind==='game').revision,8);assert.deepEqual(changes.find(c=>c.kind==='team'),{kind:'team',id:'b',deleted:true,revision:3});});
+
+test('database policies, API scopes, atomic saves and stale clients',async t=>{
+ const pg=new PGlite();
+ try{
+  await pg.exec('create role anon; create role authenticated; create role service_role bypassrls; create schema auth; create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);');
+  for(const name of ['202611160001_shared_library.sql','202611160002_initial_admin.sql'])await pg.exec(await readFile(new URL('../supabase/migrations/'+name,import.meta.url),'utf8'));
+  for(const [role,id] of Object.entries(ids))await pg.query('insert into auth.users values($1,$2,$3)',[id,role==='admin'?'weschao@gmail.com':role+'@example.com',role==='unverified'?null:new Date().toISOString()]);
+  const libraryId=(await pg.query('select id from trt_libraries')).rows[0].id;
+  const save=async(user,changes)=>pg.query('select trt_apply_changes($1,$2,$3::jsonb) as value',[ids[user],libraryId,JSON.stringify(changes)]);
+  const membership=async(user,team,role)=>pg.query('select trt_set_membership($1,$2,$3,$4,$5)',[ids.admin,libraryId,ids[user],team,role]);
+  await save('admin',[...fixture().teams.map(payload=>({kind:'team',id:payload.id,payload,revision:0})),{kind:'game',id:'g',payload:game,revision:0},{kind:'source',id:'source',payload:fixture().sources[0],revision:0}]);
+  await membership('player','a','player');await membership('stats','a','stats');await membership('leader','b','leadership');
+  await t.test('only verified designated email receives admin',async()=>{assert.deepEqual((await pg.query('select user_id from trt_admins')).rows,[{user_id:ids.admin}]);await pg.query('insert into auth.users values($1,$2,null)',['00000000-0000-4000-8000-000000000006','WESCHAO@gmail.com']);assert.equal((await pg.query('select count(*)::int as n from trt_admins')).rows[0].n,1);});
+  await t.test('authenticated clients cannot read raw tables or invoke privileged RPCs',async()=>{await pg.exec('set role authenticated');try{for(const query of ['select * from trt_entities',`select trt_snapshot('${libraryId}')`,`select trt_permits('${ids.admin}','${libraryId}','library.read',null)`])await assert.rejects(pg.query(query),/permission denied/);}finally{await pg.exec('reset role');}});
+  await t.test('stats cannot change rosters and failed transactions leave every record unchanged',async()=>{await assert.rejects(save('stats',[{kind:'game',id:'g',payload:{...game,opponent:'Would change'},revision:1},{kind:'team',id:'a',payload:{...teamA,name:'Forbidden'},revision:1}]),/Permission denied/);assert.equal((await pg.query("select payload->>'opponent' as opponent,revision from trt_entities where kind='game'")).rows[0].opponent,'Team B');});
+  await t.test('stale updates and resurrection of deleted games are rejected',async()=>{await save('stats',[{kind:'game',id:'g',payload:{...game,opponent:'Updated'},revision:1}]);await assert.rejects(save('stats',[{kind:'game',id:'g',payload:game,revision:1}]),/Another user changed/);await save('admin',[{kind:'game',id:'g',deleted:true,revision:2}]);await assert.rejects(save('stats',[{kind:'game',id:'g',payload:game,revision:0}]),/Another user changed/);await save('admin',[{kind:'game',id:'g',payload:game,revision:3}]);});
+  const fetcher=async(url,options={})=>{
+   const u=new URL(url),body=options.body?JSON.parse(options.body):null,ok=(value,status=200)=>new Response(JSON.stringify(value),{status});
+   if(u.pathname==='/auth/v1/user'){const role=options.headers.Authorization.replace('Bearer ','');if(!ids[role])return ok({error:'Unauthorized'},401);return ok({id:ids[role],email:role+'@example.com',email_confirmed_at:role==='unverified'?null:'2026-11-16'});}
+   if(u.pathname==='/auth/v1/admin/users')return ok({users:Object.entries(ids).map(([role,id])=>({id,email:role+'@example.com'}))});
+   try{
+    const route=u.pathname.replace('/rest/v1/','');
+    if(route.startsWith('rpc/')){const functionName=route.slice(4),args=Object.values(body),sql=`select ${functionName}(${args.map((_,i)=>'$'+(i+1)).join(',')}) as value`;return ok((await pg.query(sql,args.map(value=>Array.isArray(value)?JSON.stringify(value):value))).rows[0].value);}
+    assert.ok(['trt_admins','trt_libraries','trt_memberships'].includes(route));const clauses=[],values=[];
+    for(const [key,value] of u.searchParams){if(key==='order')continue;assert.match(key,/^[a-z_]+$/);if(value.startsWith('eq.')){values.push(value.slice(3));clauses.push(`${key}=$${values.length}`);}else if(value.startsWith('in.')){const list=value.slice(4,-1).split(',');clauses.push(`${key} in (${list.map(v=>{values.push(v);return '$'+values.length;}).join(',')})`);}}
+    return ok((await pg.query('select * from '+route+(clauses.length?' where '+clauses.join(' and '):''),values)).rows);
+   }catch(error){return ok({message:error.message,code:error.code},400);}
+  };
+  const api=createApi({url:'https://example.supabase.co',serviceKey:'test-only',fetcher}),call=async(role,input)=>{const response=await api(new Request('https://example.supabase.co/functions/v1/trt-api',{method:'POST',headers:{Authorization:'Bearer '+role},body:JSON.stringify({libraryId,...input})}));return {status:response.status,value:await response.json()};};
+  await t.test('players receive only their team directory and requested PD projection',async()=>{const result=await call('player',{action:'library'});assert.equal(result.status,200);assert.equal(result.value.data.games.length,0);assert.equal(result.value.data.sources.length,0);assert.deepEqual(result.value.data.teams.map(t=>t.id),['a']);assert.equal('privateSource' in result.value.data.teams[0],false);const pd=await call('player',{action:'player',teamId:'a',playerId:'bo'});assert.equal(pd.status,200);assert.equal(pd.value.summary.goals,1);assert.equal((await call('player',{action:'player',teamId:'b',playerId:'opp'})).status,403);});
+  await t.test('stats have games but no source records or other-team access',async()=>{const result=await call('stats',{action:'library'});assert.equal(result.value.data.games.length,1);assert.equal(result.value.data.sources.length,0);assert.equal((await call('stats',{action:'members'})).status,403);assert.equal((await call('stats',{action:'save',changes:[{kind:'game',id:'g',payload:{...game,teamId:'b'},revision:4}]})).status,403);});
+  await t.test('a linked opponent can view and edit the game from its own side without moving the canonical game',async()=>{const result=await call('leader',{action:'library'}),mirrored=result.value.data.games[0];assert.equal(mirrored.teamId,'b');assert.equal(mirrored.opponent,'Team A');assert.equal(mirrored.events.find(e=>e.id==='pass').side,'them');mirrored.events.find(e=>e.id==='pass').notes='Reviewed from Team B';const saved=await call('leader',{action:'save',changes:[{kind:'game',id:'g',payload:mirrored,revision:4}]});assert.equal(saved.status,200);const canonical=(await pg.query("select payload from trt_entities where kind='game'")).rows[0].payload;assert.equal(canonical.teamId,'a');assert.equal(canonical.events.find(e=>e.id==='pass').side,'us');assert.equal(canonical.events.find(e=>e.id==='pass').notes,'Reviewed from Team B');assert.equal('opponentPerspective' in canonical,false);});
+  await t.test('all mutation paths enforce current identity and role',async()=>{assert.equal((await call('player',{action:'save',userId:ids.admin,changes:[{kind:'game',id:'g',payload:game,revision:4}]})).status,403);assert.equal((await call('stats',{action:'membership',userId:ids.stats,role:'leadership',teamId:null})).status,403);assert.equal((await call('unverified',{action:'context'})).status,403);assert.equal((await call('unknown',{action:'context'})).status,401);await membership('player','a',null);assert.equal((await call('player',{action:'player',teamId:'a',playerId:'bo'})).status,403);});
+  await t.test('API reports conflicts without overwriting another save',async()=>{const result=await call('stats',{action:'save',changes:[{kind:'game',id:'g',payload:game,revision:1}]});assert.equal(result.status,409);});
+ }finally{await pg.close();}
+});
+
+test('queued cloud saves stop after a conflict and preserve the acknowledged baseline',async()=>{const store=new CloudStore({enabled:true});store.baseline=fixture();store.request=async()=>{const error=new Error('conflict');error.status=409;throw error;};const a=fixture();a.games[0].opponent='First';const b=fixture();b.games[0].opponent='Second';await Promise.all([assert.rejects(store.save(a),/conflict/),assert.rejects(store.save(b),/Unsaved changes/)]);assert.equal(store.baseline.games[0].opponent,'Team B');assert.equal(store.failed,true);assert.equal(store.saving,0);});
+
+test('Google PKCE ties the callback to this device and does not persist Google provider credentials',async()=>{
+ const previous=Object.fromEntries(['localStorage','sessionStorage','location'].map(key=>[key,globalThis[key]])),items=new Map(),storage={getItem:key=>items.get(key)||null,setItem:(key,value)=>items.set(key,value),removeItem:key=>items.delete(key)};let destination;
+ try{
+  globalThis.localStorage=globalThis.sessionStorage=storage;globalThis.location={origin:'https://example.test',pathname:'/',assign:url=>destination=url};
+  const store=new CloudStore({url:'https://project.supabase.co',nativeRedirect:'righttrousers://auth/callback'});
+  await store.beginGoogle();const url=new URL(destination),pending=JSON.parse(items.get('right-trousers-pkce'));
+  assert.equal(url.searchParams.get('provider'),'google');assert.equal(url.searchParams.get('redirect_to'),'https://example.test/');assert.equal(url.searchParams.get('code_challenge_method'),'s256');assert.equal(url.searchParams.get('code_challenge'),createHash('sha256').update(pending.verifier).digest('base64url'));
+  store.auth=async(path,body)=>{assert.equal(path,'token?grant_type=pkce');assert.deepEqual(body,{auth_code:'single-use-code',code_verifier:pending.verifier});return {access_token:'access',refresh_token:'refresh',expires_in:3600,provider_token:'do-not-store',provider_refresh_token:'do-not-store'};};
+  assert.equal(await store.finishGoogle('https://example.test/?code=single-use-code'),true);assert.equal(items.has('right-trousers-pkce'),false);assert.equal(items.get('right-trousers-auth').includes('do-not-store'),false);await assert.rejects(store.finishGoogle('https://example.test/?code=replay'),/Sign-in expired/);
+  store.native=true;store.nativeBrowser={open:async({url})=>destination=url};await store.beginGoogle();assert.equal(new URL(destination).searchParams.get('redirect_to'),'righttrousers://auth/callback');
+ }finally{for(const [key,value] of Object.entries(previous)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}}
+});

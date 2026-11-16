@@ -1,0 +1,47 @@
+name: Deploy shared library API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/**'
+      - 'supabase/config.toml'
+      - 'web/core.js'
+      - 'web/access.js'
+      - 'web/player-detail.js'
+      - 'web/player-projection.js'
+      - 'web/video.js'
+      - 'package-lock.json'
+      - '.github/workflows/supabase-functions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-production-api
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - uses: supabase/setup-cli@v1
+        if: env.SUPABASE_ACCESS_TOKEN != ''
+        with:
+          version: latest
+      - name: Deploy API
+        if: env.SUPABASE_ACCESS_TOKEN != ''
+        run: supabase functions deploy trt-api --project-ref okxdkvpglwhbncfzuauc
+      - name: Explain missing deployment credential
+        if: env.SUPABASE_ACCESS_TOKEN == ''
+        run: echo '::notice::Set the repository SUPABASE_ACCESS_TOKEN secret to enable automatic API deployments. Cloudflare deployment remains independent.'

@@ -7,14 +7,19 @@
     "start": "node scripts/serve.mjs",
     "test": "node --test tests/*.test.mjs",
     "build": "node scripts/build.mjs",
+    "cloud:build": "node scripts/build-cloud.mjs",
     "native:sync": "npm run build && npx cap sync"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/browser": "^8.0.5",
     "@capacitor/core": "^8.5.2",
     "@capacitor/ios": "^8.5.2"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.5.2"
+    "@capacitor/cli": "^8.5.2",
+    "@electric-sql/pglite": "^0.5.16",
+    "esbuild": "^0.28.2"
   }
 }
