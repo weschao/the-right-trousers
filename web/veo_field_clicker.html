@@ -24,6 +24,14 @@
   button { cursor: pointer; } button:hover { background: #353535; }
   button.on { background: #7a5c00; border-color: #c79a00; color: #fff; }
   input[type=number] { width: 52px; } #veoUrl { width: 300px; } #seek { flex: 1; min-width: 160px; padding: 0; }
+  #speed-popover { inset: auto; margin: 0; padding: 10px; background: #2a2a2a; color: #ddd; border: 1px solid #555; border-radius: 4px; }
+  #speed-slider { width: 160px; padding: 0; }
+  #speed-popover label { display: block; margin-bottom: 5px; text-align: center; }
+  #shortcut-dialog { box-sizing: border-box; max-width: min(420px, 95vw); max-height: 90vh; overflow: auto; background: #222; color: #ddd; border: 1px solid #666; border-radius: 6px; }
+  #shortcut-dialog::backdrop { background: rgba(0, 0, 0, .7); }
+  #shortcut-dialog h2 { margin: 0 0 12px; font-size: 18px; }
+  #shortcut-dialog dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; }
+  #shortcut-dialog dt { font-weight: 600; } #shortcut-dialog dd { margin: 0; }
   #seek-tooltip { position: fixed; z-index: 10; transform: translate(-50%, -100%); background: #111; color: #fff; border: 1px solid #555; border-radius: 4px; padding: 3px 6px; font-variant-numeric: tabular-nums; pointer-events: none; }
   a { color: #7fb7ff; }
   .cone { border-color: #555; } .cone.set { border-color: #3c8a3c; color: #bfe8bf; } .cone.selected { background: #7a5c00; border-color: #c79a00; color: #fff; }
@@ -74,6 +82,24 @@
   <div id="hint"><div id="setup-panel"><p id="setup-instructions"></p><div id="setup-bookmark"></div><div id="setup-entry"></div><p id="setup-status" role="status"></p></div></div>
   <video id="video" playsinline preload="auto" crossorigin="anonymous"></video>
 </div>
+<dialog id="shortcut-dialog" aria-labelledby="shortcut-title">
+  <h2 id="shortcut-title">Keyboard shortcuts</h2>
+  <dl>
+    <dt>Space</dt><dd>Play or pause</dd>
+    <dt>← / →</dt><dd>Skip back or forward 5 seconds × playback speed</dd>
+    <dt>Shift + ← / →</dt><dd>Skip back or forward 60 seconds × playback speed</dd>
+    <dt>&lt; / &gt;</dt><dd>Move playback speed to the next 0.25x step</dd>
+    <dt>, / .</dt><dd>Step back or forward one frame</dd>
+    <dt>C</dt><dd>Toggle cone placement</dd>
+    <dt>R</dt><dd>Toggle whole field / previous view</dd>
+    <dt>P</dt><dd>Change projection</dd>
+    <dt>O</dt><dd>Toggle outline</dd>
+    <dt>1–8</dt><dd>Select a cone</dd>
+    <dt>Delete / Backspace</dt><dd>Remove selected cone in cone mode, or the last click</dd>
+    <dt>Escape</dt><dd>Close an open dialog</dd>
+  </dl>
+  <form method="dialog"><button type="submit">Close</button></form>
+</dialog>
 <div id="bar">
   <div class="row">
     <div class="group">
@@ -95,12 +121,15 @@
   <div class="row" id="playback-controls">
     <div class="group">
       <button id="playButton" title="space">Play</button>
-      <button id="backButton" title=", (shift: 10 frames)">&lt;</button>
-      <button id="forwardButton" title=". (shift: 10 frames)">&gt;</button>
+      <button id="backButton" title=",">&lt;</button>
+      <button id="forwardButton" title=".">&gt;</button>
       <span id="time"></span>
     </div>
     <input id="seek" aria-label="Video timeline" type="range" min="0" max="0" step="0.001" value="0">
     <span id="seek-tooltip" hidden></span>
+    <button id="speed-button" type="button" popovertarget="speed-popover" aria-label="Playback speed" aria-expanded="false">1.0x</button>
+    <button id="shortcut-help" type="button">Help</button>
+    <div id="speed-popover" popover><label for="speed-slider">Playback speed</label><input id="speed-slider" type="range" min="0.1" max="2" step="0.05" value="1"></div>
     <div class="group">
       <button id="resetButton" title="r">Whole field</button>
       <button id="projectionButton" title="p"></button>
@@ -836,9 +865,34 @@ stage.addEventListener('wheel', event => {
   ACTIONS.zoomAt(at.x, at.y, event.deltaY);
 }, {passive: false});
 
+function setPlaybackSpeed(speed) {
+  video.playbackRate = Math.round(Math.min(2, Math.max(0.1, speed)) * 20) / 20;
+}
+function updatePlaybackSpeed() {
+  const speed = video.playbackRate;
+  element('speed-button').textContent = `${Number.isInteger(speed * 10) ? speed.toFixed(1) : speed.toFixed(2)}x`;
+  element('speed-slider').value = speed;
+}
+element('shortcut-help').addEventListener('click', () => { element('shortcut-dialog').showModal(); });
+element('speed-slider').addEventListener('input', event => setPlaybackSpeed(Number(event.target.value)));
+element('speed-popover').addEventListener('beforetoggle', event => {
+  if (event.newState === 'open') {
+    const rect = element('speed-button').getBoundingClientRect(), popup = element('speed-popover');
+    popup.style.left = `${Math.max(8, Math.min(rect.right - 240, innerWidth - 248))}px`;
+    popup.style.top = `${Math.max(8, rect.top - 80)}px`;
+  }
+  element('speed-button').setAttribute('aria-expanded', String(event.newState === 'open'));
+});
+video.addEventListener('ratechange', updatePlaybackSpeed);
+
+// Keep the keyboard shortcuts in #shortcut-dialog current when adding or changing handlers.
 function handlePlaybackKey(key, shiftKey = false) {
-  const skip = shiftKey ? 60 : 5;
-  if (key === ' ') ACTIONS.togglePlay();
+  const skip = (shiftKey ? 60 : 5) * video.playbackRate;
+  if (key === '<' || key === '>') {
+    const steps = Math.round(video.playbackRate * 20);
+    setPlaybackSpeed((key === '<' ? Math.floor((steps - 1) / 5) : Math.floor(steps / 5) + 1) / 4);
+  }
+  else if (key === ' ') ACTIONS.togglePlay();
   else if (key === 'ArrowLeft') ACTIONS.seek(video.currentTime - skip);
   else if (key === 'ArrowRight') ACTIONS.seek(video.currentTime + skip);
   else return false;
@@ -846,16 +900,18 @@ function handlePlaybackKey(key, shiftKey = false) {
 }
 
 document.addEventListener('keydown', event => {
+  if (event.target.closest?.('#shortcut-dialog')) return;
   if (trackerHoveringVideo && (event.key === ' ' || ['ArrowLeft', 'ArrowRight'].includes(event.key)) && !event.metaKey && !event.ctrlKey && !event.altKey) { if (event.key !== ' ' || !event.repeat) handlePlaybackKey(event.key, event.shiftKey); event.preventDefault(); return; }
   if (trackerBlocked && event.key === 'Escape') { trackerConnection?.onEscape?.(); return; }
+  if (event.target.id === 'speed-slider') return;
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(event.target.tagName) && event.target.type !== 'range') return;
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   const key = event.key;
   if (event.repeat && (key === ' ' || key === 'r')) { event.preventDefault(); return; }
   if (handlePlaybackKey(key, event.shiftKey)) { event.preventDefault(); return; }
   if (trackerBlocked) return;
-  if (key === ',' || key === '<') ACTIONS.stepFrames(event.shiftKey ? -10 : -1);
-  else if (key === '.' || key === '>') ACTIONS.stepFrames(event.shiftKey ? 10 : 1);
+  if (key === ',') ACTIONS.stepFrames(-1);
+  else if (key === '.') ACTIONS.stepFrames(1);
   else if (key === 'c') ACTIONS.setConeMode(!state.coneMode);
   else if (key === 'r') ACTIONS.resetView();
   else if (key === 'p') ACTIONS.toggleProjection();

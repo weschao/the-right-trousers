@@ -8,10 +8,11 @@ import {EnhancedTracker,EnhancedConnection} from '../web/enhanced-tracker.js';
 const source=fs.readFileSync(new URL('../web/veo_field_clicker.html',import.meta.url),'utf8');
 function clicker(){
  const handlers={},moves=[],state={view:{},viewFitted:true,fit:{},lens:{},drift:null,field:{length:110,width:40},clicks:[{u:100,v:100,x:10,y:10,inField:true,videoSeconds:12.5,veoSeconds:12.5,frame:374}]};
- const video={paused:false,currentTime:99,duration:120,pause(){this.paused=true;},play(){this.paused=false;}};
+ const video={paused:false,currentTime:99,duration:120,playbackRate:1,pause(){this.paused=true;},play(){this.paused=false;}};
  let pans=0;
  const context=vm.createContext({state,video,window:{},document:{addEventListener:(name,fn)=>handlers['key:'+name]=fn},stage:{style:{},addEventListener:(name,fn)=>handlers[name]=fn,setPointerCapture(){}},
   screenOfPixel:(u,v)=>({x:u,y:v}),stagePoint:e=>({x:e.clientX,y:e.clientY}),guarded:fn=>fn,refresh(){},say(){},groundPlaneNow:()=>null,veoSecondsNow:()=>99,videoReady:()=>true,frameAt:()=>2970,
+  setPlaybackSpeed:speed=>{video.playbackRate=Math.max(0.1,Math.min(2,speed));},
   trackerBlocked:true,trackerCanMoveClick:true,trackerHoveringVideo:false,trackerConnection:{onMove:click=>moves.push({...click})},CLICK_SLOP_PIXELS:4,
   VeoField:{screenToDirection:(view,x,y)=>({x,y}),sampleDirection:(lens,p)=>p.x<0?[]:[{u:p.x,v:p.y}],pixelToField:(lens,fit,drift,seconds,u,v)=>v<0?null:{x:u/10,y:v/10},panBy:view=>{pans++;return view;}}});
  vm.runInContext(source.slice(source.indexOf('const ACTIONS = {'),source.indexOf('window.ACTIONS = ACTIONS;')+'window.ACTIONS = ACTIONS;'.length),context);
@@ -82,6 +83,12 @@ test('Shift+arrows skip one minute, plain arrows skip five seconds, and skips st
  h.video.currentTime=5;key('ArrowLeft',true);assert.equal(h.video.currentTime,0);
  h.video.currentTime=100;key('ArrowRight',true);assert.equal(h.video.currentTime,120);assert.equal(prevented,6);
 });
+test('arrow skips scale with playback speed, including Shift skips',()=>{
+ const h=clicker();h.video.playbackRate=0.1;h.video.currentTime=10;
+ h.context.handlePlaybackKey('ArrowLeft');assert.equal(h.video.currentTime,9.5);
+ h.context.handlePlaybackKey('ArrowRight',true);assert.equal(h.video.currentTime,15.5);
+ h.video.playbackRate=2;h.context.handlePlaybackKey('ArrowRight');assert.equal(h.video.currentTime,25.5);
+});
 test('sidebar keyboard forwarding preserves Shift for one-minute skips',()=>{
  const originalWindow=globalThis.window,originalDocument=globalThis.document;let keydown;
  try{
@@ -111,6 +118,12 @@ test('Shift+arrows over the video work after focus returns to an input',()=>{
  assert.equal(h.video.currentTime,39);
  h.handlers['key:keydown']({key:'ArrowRight',shiftKey:false,target:{tagName:'INPUT'},preventDefault(){prevented++;}});
  assert.equal(h.video.currentTime,44);assert.equal(prevented,2);
+});
+test('speed shortcuts move to the next quarter-speed boundary and clamp at the limits',()=>{
+ const h=clicker();
+ for(const [start,key,expected] of [[1.1,'<',1],[1.1,'>',1.25],[1,'<',0.75],[1,'>',1.25],[0.1,'<',0.1],[0.1,'>',0.25],[2,'>',2]]){
+  h.video.playbackRate=start;h.context.handlePlaybackKey(key);assert.equal(h.video.playbackRate,expected);
+ }
 });
 test('parent forwards Shift+arrows over video after focus returns to an input',()=>{
  const oldWindow=globalThis.window,oldDocument=globalThis.document;let keydown;
