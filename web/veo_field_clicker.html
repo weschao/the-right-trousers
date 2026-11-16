@@ -153,7 +153,7 @@ const state = {
   field: {length: 110, width: 40, endzone: 20, aSide: 'left', yZeroSide: 'far'},
   cones: {}, coneMode: true, selectedCone: CONE_ORDER[0],
   fit: null, fitError: null,
-  clicks: [], view: null, viewFitted: false, outline: true, message: '', frameUploaded: false, uploadedTime: null,
+  clicks: [], view: null, previousView: null, viewFitted: false, outline: true, message: '', frameUploaded: false, uploadedTime: null,
 };
 
 // ---- the picture: both lenses resampled into one view ----
@@ -590,7 +590,7 @@ const ACTIONS = {
   },
   zoomAt(screenX, screenY, deltaY) { state.view = VeoField.zoomAbout(state.view, screenX, screenY, deltaY); refresh(); trackerConnection?.onViewChange?.(); },
   panBy(fromX, fromY, toX, toY) { state.view = VeoField.panBy(state.view, fromX, fromY, toX, toY); refresh(); trackerConnection?.onViewChange?.(); },
-  resetView() { state.view = VeoField.wholeView(state.view.width, state.view.height); refresh(); },
+  resetView() { if (state.previousView) { state.view = state.previousView; state.previousView = null; } else { state.previousView = {...state.view}; state.view = VeoField.wholeView(state.view.width, state.view.height); } refresh(); trackerConnection?.onViewChange?.(); },
   setProjection(projection) { state.view = VeoField.withProjection(state.view, projection); refresh(); },
   toggleProjection() { ACTIONS.setProjection(state.view.projection === 'flat' ? 'wide' : 'flat'); },
   setView(view) { state.view = VeoField.clampView({...state.view, ...view}); refresh(); },
@@ -610,6 +610,7 @@ const ACTIONS = {
     state.videoStartVeoSeconds = record.video_start_veo_seconds;
     state.field = record.field_yards; state.cones = record.cones; state.clicks = record.clicks;
     state.coneMode = Object.keys(state.cones).length < 4;
+    state.previousView = null;
     if (record.view) state.view = VeoField.clampView({...record.view, width: stage.clientWidth, height: stage.clientHeight});
     if (Number.isFinite(record.video_time)) video.currentTime = record.video_time;
     if (record.video_url && record.video_url !== state.videoUrl) ACTIONS.loadVideo(record.video_url, record.video_name, record.video_url);
@@ -850,7 +851,7 @@ document.addEventListener('keydown', event => {
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(event.target.tagName) && event.target.type !== 'range') return;
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   const key = event.key;
-  if (event.repeat && key === ' ') { event.preventDefault(); return; }
+  if (event.repeat && (key === ' ' || key === 'r')) { event.preventDefault(); return; }
   if (handlePlaybackKey(key, event.shiftKey)) { event.preventDefault(); return; }
   if (trackerBlocked) return;
   if (key === ',' || key === '<') ACTIONS.stepFrames(event.shiftKey ? -10 : -1);
@@ -879,9 +880,9 @@ function fitStage() {
   const ratio = window.devicePixelRatio || 1;
   for (const canvas of [picture, overlay]) { canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio); }
   if (state.viewFitted) {
-    const view = state.view, factor = width / view.width;
-    const fieldOfView = view.projection === 'flat' ? 2 * Math.atan(Math.tan(view.fieldOfView / 2) * factor) : view.fieldOfView * factor;
-    state.view = VeoField.clampView({...view, width, height, fieldOfView});
+    const resizeView = view => { const factor = width / view.width; const fieldOfView = view.projection === 'flat' ? 2 * Math.atan(Math.tan(view.fieldOfView / 2) * factor) : view.fieldOfView * factor; return VeoField.clampView({...view, width, height, fieldOfView}); };
+    state.view = resizeView(state.view);
+    if (state.previousView) state.previousView = resizeView(state.previousView);
   } else state.view = VeoField.wholeView(width, height);
   state.viewFitted = true;
   refresh();
