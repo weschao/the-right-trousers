@@ -1,6 +1,6 @@
 # The Right Trousers
 
-The Right Trousers is an offline-first ultimate frisbee scorekeeping app for desktop browsers, iPad, and Android tablets. It records each game as ordered play-by-play events and derives player and team statistics from those events.
+The Right Trousers is a shared ultimate frisbee scorekeeping app for desktop browsers, iPad, and Android tablets. It records each game as ordered play-by-play events and derives player and team statistics from those events.
 
 During point setup, scorekeepers can create and manage named player groups such as `O-line` or `D-line`, filter the roster to one group, and keep the full selected line visible while choosing the seven players.
 
@@ -15,7 +15,7 @@ npm install
 npm start
 ```
 
-Open `http://localhost:4173`. The app stores its working library in IndexedDB and supports portable JSON import and export.
+Open `http://localhost:4173` and sign in with Google. Local and production instances use the same hosted library; editing requires internet. JSON import and export remain available for migration and backups.
 
 ## Shared library (Supabase)
 
