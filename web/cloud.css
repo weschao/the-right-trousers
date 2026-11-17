@@ -2,6 +2,5 @@ body [hidden]{display:none!important}.cloud-login{max-width:420px;margin:12vh au
 
 .cloud-enabled .topbar{height:auto;min-height:61px;padding-block:12px;flex-wrap:wrap}.topbar .cloud-save-state{display:block;flex-basis:100%;font-size:11px;text-align:right}.cloud-account small{overflow:hidden;text-overflow:ellipsis;max-width:220px}
 
-.cloud-import-conflicts{max-height:55vh;overflow:auto}.cloud-import-conflicts section{margin-bottom:12px}.cloud-import-conflicts label{display:block;margin:10px 0}.cloud-import-conflicts input{width:auto}
 
 .top-actions,.topbar-account{margin-left:auto}.cloud-account{justify-content:flex-end}
