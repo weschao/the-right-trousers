@@ -9,6 +9,14 @@
   body { display: flex; flex-direction: column; }
   #stage { flex: 1; min-height: 0; position: relative; overflow: hidden; background: #000; cursor: crosshair; touch-action: none; }
   #stage canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+  #footage-tools { position: absolute; z-index: 3; top: 10px; right: 12px; display: grid; justify-items: end; gap: 6px; max-width: min(420px, 85%); cursor: default; }
+  #footage-tools[hidden] { display: none; }
+  #footage-tools button { padding: 7px 12px; background: #242424; }
+  #footage-status { margin: 0; padding: 6px 9px; border-radius: 4px; background: rgba(20,20,20,.94); text-align: right; overflow-wrap: anywhere; }
+  #footage-status:empty { display: none; }
+  #footage-tools button:disabled { opacity: .5; cursor: default; }
+  #renderer-notice { position: absolute; z-index: 4; top: 50%; left: 50%; transform: translate(-50%, -50%); box-sizing: border-box; width: min(460px, 90%); padding: 16px; border: 1px solid #777; border-radius: 8px; background: #222; text-align: center; cursor: default; }
+  #renderer-notice p { margin: 0 0 12px; }
   #overlay { pointer-events: none; }
   #crosshair-handle { position: absolute; z-index: 1; width: 36px; height: 36px; min-height: 0; padding: 0; border: 0;
     background: transparent; transform: translate(-50%, -50%); cursor: grab; touch-action: none; }
@@ -75,6 +83,8 @@
 <body>
 <script>if (window.parent !== window) document.body.classList.add('embedded');</script>
 <div id="stage" tabindex="-1">
+  <div id="renderer-notice" role="alert" hidden><p id="renderer-status"></p><button id="retry-renderer" type="button">Retry video</button></div>
+  <div id="footage-tools"><button id="export-footage" type="button" title="Save the full game as a YouTube 360° MP4" disabled>Export Footage</button><p id="footage-status" role="status" aria-live="polite"></p></div>
   <canvas id="picture"></canvas>
   <canvas id="overlay"></canvas>
   <button id="crosshair-handle" aria-label="Drag event location" title="Drag event location" hidden></button>
@@ -184,6 +194,7 @@ const state = {
   fit: null, fitError: null,
   clicks: [], view: null, previousView: null, viewFitted: false, outline: true, message: '', frameUploaded: false, uploadedTime: null,
 };
+let footageController = null;
 
 // ---- the picture: both lenses resampled into one view ----
 
@@ -199,6 +210,7 @@ uniform mat3 viewRotation;
 uniform float focal;
 uniform float tanPitch;
 uniform int flatProjection;
+uniform int sphericalProjection;
 uniform mat3 rigToLens[2];
 uniform vec3 lensOrigin[2];
 uniform vec4 intrinsics[2];     // fx, fy, cx, cy in native sensor pixels
@@ -237,7 +249,8 @@ void main() {
   vec2 screen = vec2(gl_FragCoord.x / pixelRatio, size.y - gl_FragCoord.y / pixelRatio);
   float x = (screen.x - 0.5 * size.x) / focal;
   float y = (screen.y - 0.5 * size.y) / focal;
-  vec3 inView = flatProjection == 1 ? vec3(x, y, 1.0) : vec3(sin(x), y + tanPitch, cos(x));
+  vec3 inView = sphericalProjection == 1 ? vec3(sin(x) * cos(y), sin(y), cos(x) * cos(y))
+    : flatProjection == 1 ? vec3(x, y, 1.0) : vec3(sin(x), y + tanPitch, cos(x));
   vec3 direction = normalize(viewRotation * inView);
   // with the ground known, a descending ray is taken to hit the grass, and each lens is asked for that point
   vec3 point = direction;
@@ -254,11 +267,11 @@ void main() {
   vec3 firstColour = textureGrad(frame, firstAt, dFdx(firstAt), dFdy(firstAt)).rgb;
   vec3 secondColour = textureGrad(frame, secondAt, dFdx(secondAt), dFdy(secondAt)).rgb;
   float total = first.z + second.z;
-  colour = total > 0.0 ? vec4((first.z * firstColour + second.z * secondColour) / total, 1.0) : vec4(0.07, 0.07, 0.07, 1.0);
+  colour = total > 0.0 ? vec4((first.z * firstColour + second.z * secondColour) / total, 1.0) : vec4(vec3(sphericalProjection == 1 ? 0.0 : 0.07), 1.0);
 }`;
 
-const gl = picture.getContext('webgl2', {antialias: false, preserveDrawingBuffer: true});
-let program = null;
+let gl = null, program = null, rendererError = '';
+const pictureReady = () => !!program && !!gl && !gl.isContextLost();
 const uniforms = {};
 function compile(type, source) {
   const shader = gl.createShader(type);
@@ -268,7 +281,8 @@ function compile(type, source) {
   return shader;
 }
 function setUpPicture() {
-  if (!gl) throw Error('This browser has no WebGL 2');
+  gl ||= picture.getContext('webgl2', {alpha: false, depth: false, stencil: false, antialias: false, preserveDrawingBuffer: true});
+  if (!gl || gl.isContextLost()) throw Error(rendererError || 'WebGL 2 is unavailable');
   program = gl.createProgram();
   gl.attachShader(program, compile(gl.VERTEX_SHADER, VERTEX_SHADER));
   gl.attachShader(program, compile(gl.FRAGMENT_SHADER, FRAGMENT_SHADER));
@@ -295,6 +309,37 @@ function setUpPicture() {
   gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_MAX_LOD, 3);
 }
 
+function rendererUnavailable(message) {
+  program = null;
+  state.frameUploaded = false; state.uploadedTime = null;
+  element('renderer-status').textContent = message;
+  element('renderer-notice').hidden = false;
+}
+function initializePicture() {
+  if (pictureReady()) return true;
+  try {
+    setUpPicture();
+    state.frameUploaded = false; state.uploadedTime = null;
+    rendererError = '';
+    element('renderer-notice').hidden = true;
+    return true;
+  } catch (error) {
+    rendererError = error.message;
+    rendererUnavailable('Video graphics are unavailable. Fully quit and reopen your browser, then reopen EPT. Your saved video setup is retained.');
+    return false;
+  }
+}
+picture.addEventListener('webglcontextcreationerror', event => { rendererError = event.statusMessage || 'WebGL 2 is unavailable'; });
+picture.addEventListener('webglcontextlost', event => {
+  event.preventDefault(); // Allow the browser to restore this context.
+  rendererUnavailable('Video graphics were interrupted. Waiting for the browser to recover. If this persists, fully quit and reopen your browser.');
+  footageController?.abort();
+  video.pause();
+  refresh();
+});
+picture.addEventListener('webglcontextrestored', () => { initializePicture(); refresh(); });
+element('retry-renderer').addEventListener('click', () => { initializePicture(); refresh(); });
+
 const columnMajor = matrix => [0, 1, 2].flatMap(column => matrix.map(row => row[column]));
 const transposeOf = matrix => [0, 1, 2].map(row => [0, 1, 2].map(column => matrix[column][row]));
 const veoSecondsNow = () => video.currentTime + state.videoStartVeoSeconds;
@@ -317,7 +362,7 @@ function uploadFrame() {
 }
 
 function draw() {
-  if (!state.viewFitted) return;
+  if (!state.viewFitted || !pictureReady()) return;
   gl.viewport(0, 0, picture.width, picture.height);
   if (!state.lens || !videoReady()) {
     gl.clearColor(0, 0, 0, 1);
@@ -430,6 +475,7 @@ const feetAndInches = feet => { const inches = Math.round(feet * 12); return `${
 function setHtml(target, html) { if (target.dataset.html !== html) { target.dataset.html = html; target.innerHTML = html; } }
 
 function refreshBar() {
+  refreshFootageControls();
   element('playButton').textContent = video.paused ? 'Play' : 'Pause';
   element('time').textContent = videoReady() || video.duration
     ? `${formatTime(video.currentTime)} / ${formatTime(video.duration || 0)}${trackerConnection ? '' : ` · frame ${frameAt(video.currentTime)}`}` : '';
@@ -506,6 +552,7 @@ const ACTIONS = {
   // url: a blob of a chosen file, or a link Veo serves; remoteUrl is kept so a saved session can reopen the stream
   loadVideo(url, name, remoteUrl = null) {
     trackerDirty = true;
+    if (!footageController) element('footage-status').textContent = '';
     state.videoName = name; state.videoUrl = remoteUrl; state.frameUploaded = false; state.uploadedTime = null;
     video.src = url;
     video.load();
@@ -654,6 +701,7 @@ const ACTIONS = {
     link.click();
     URL.revokeObjectURL(link.href);
   },
+  downloadFootage() { return downloadFootage(); },
   // ---- for the checks ----
   screenOfPixel,
   probe() {
@@ -664,6 +712,7 @@ const ACTIONS = {
             fit: state.fit && {camera: state.fit.camera, misses: state.fit.misses, coneCount: state.fit.coneCount}, fitError: state.fitError,
             clickCount: state.clicks.length, lastClick: state.clicks.at(-1) || null, field: state.field, match: state.match,
             message: state.message, outline: state.outline, frameUploaded: state.frameUploaded,
+            graphics: {ready: pictureReady(), lost: !!gl?.isContextLost(), error: rendererError},
             canvas: {width: picture.width, height: picture.height}, stage: {width: stage.clientWidth, height: stage.clientHeight}};
   },
   // the colour the picture shows at a stage position, read back from the canvas itself
@@ -692,10 +741,56 @@ const ACTIONS = {
 };
 window.ACTIONS = ACTIONS;
 
+function footageState() {
+  return {active: !!footageController, available: pictureReady() && !!state.lens && videoReady(), status: element('footage-status').textContent};
+}
+function refreshFootageControls() {
+  const state = footageState(), button = element('export-footage');
+  button.textContent = state.active ? 'Cancel Export' : 'Export Footage';
+  button.title = state.active ? 'Cancel the footage export' : 'Save the full game as a YouTube 360° MP4';
+  button.disabled = !state.active && !state.available;
+  trackerConnection?.onFootageChange?.(state);
+}
+async function downloadFootage() {
+  if (footageController || !pictureReady() || !state.lens || !videoReady()) return;
+  const controller = footageController = new AbortController();
+  const status = element('footage-status');
+  const snapshot = structuredClone({lens: state.lens, fit: state.fit, drift: state.drift, field: state.field, offset: state.videoStartVeoSeconds});
+  const source = video.currentSrc || video.src;
+  const name = `veo-${state.match?.slug || 'footage'}-360.mp4`;
+  let writable = null;
+  status.textContent = 'Choose where to save the full game…';
+  refreshBar();
+  try {
+    const picker = trackerConnection?.pickFootageFile || window.showSaveFilePicker?.bind(window);
+    if (!picker) throw Error('Full-game export saves directly to disk and requires desktop Chrome or Edge.');
+    // Open the picker before any import/network await consumes the click's user activation.
+    const handle = await picker({suggestedName: name, types: [{description: 'MP4 video', accept: {'video/mp4': ['.mp4']}}]});
+    controller.signal.throwIfAborted();
+    writable = await handle.createWritable();
+    const {exportFootage} = await import('./footage-export.js');
+    const result = await exportFootage({url: source, writable, lens: snapshot.lens, vertexShader: VERTEX_SHADER, fragmentShader: FRAGMENT_SHADER, geometry: VeoField, signal: controller.signal,
+      planeAt: seconds => {
+        if (!snapshot.fit) return null;
+        try { return VeoField.groundPlaneAt(snapshot.fit, snapshot.drift, seconds + snapshot.offset, snapshot.field); }
+        catch { return null; }
+      }, onProgress: progress => { status.textContent = progress.message; refreshFootageControls(); }});
+    writable = null; // The exporter committed and closed the file.
+    status.textContent = `Saved full game (${formatTime(result.seconds)}) · ${result.width} × ${result.height}. Upload this MP4 to YouTube; 360° processing may take up to an hour.`;
+  } catch (error) {
+    status.textContent = controller.signal.aborted || error.name === 'AbortError' ? 'Export canceled.' : `Export failed: ${error.message}`;
+  } finally {
+    if (writable) await writable.abort().catch(() => {});
+    footageController = null; refreshBar();
+  }
+}
+element('export-footage').addEventListener('click', () => { if (footageController) footageController.abort(); else ACTIONS.downloadFootage(); });
+window.addEventListener('pagehide', () => footageController?.abort());
+
 // Embedded Right Trousers integration. Standalone use retains the original controls.
 let trackerOpening = false;
 let trackerConnection = null, trackerDirty = false, trackerWasReady = false, trackerBlocked = false, trackerCanMoveClick = false, trackerPointerInStage = false, trackerHoveringVideo = false, trackerPendingSeek = null;
-const trackerReady = () => videoReady() && (trackerConnection?.clickToPlay ? !!state.lens : !!state.fit && !state.coneMode);
+const trackerReady = () => pictureReady() && videoReady() && (trackerConnection?.clickToPlay ? !!state.lens : !!state.fit && !state.coneMode);
 function trackerSession() {
   return {...ACTIONS.exportSession(), clicks: [], video_time: video.currentTime, view: state.view};
 }
@@ -721,6 +816,7 @@ function syncTrackerHover() {
 window.VeoTracker = {
   connect(connection) {
     trackerConnection = connection;
+    element('footage-tools').hidden = !!connection.externalFootageControls;
     stage.style.cursor = connection.clickToPlay ? 'pointer' : 'crosshair';
     trackerOpening = !!connection.opening;
     document.body.classList.add('embedded');
@@ -744,6 +840,9 @@ window.VeoTracker = {
   setCompleted(completed) { trackerConnection.completed = !!completed; element('close-setup-panel').hidden = !completed; if (completed) state.coneMode = false; trackerRefresh(); },
   screenOfPixel,
   ready: trackerReady,
+  footageState,
+  exportFootage: downloadFootage,
+  cancelFootage() { footageController?.abort(); },
   seconds: veoSecondsNow,
   seekVeo(seconds) { const target = Math.max(0, seconds - state.videoStartVeoSeconds); if (video.readyState) ACTIONS.seek(target); else trackerPendingSeek = target; },
   pause() { video.pause(); },
@@ -823,7 +922,7 @@ function editableCrosshairAt(at, radius = 18) {
   return marker && Math.hypot(at.x - marker.x, at.y - marker.y) <= radius ? marker : null;
 }
 stage.addEventListener('pointerdown', event => {
-  if (event.button !== 0 || !state.viewFitted || event.target.closest('#calibration-controls, #setup-panel')) return;
+  if (event.button !== 0 || !state.viewFitted || event.target.closest('#calibration-controls, #setup-panel, #footage-tools, #renderer-notice')) return;
   const at = stagePoint(event), marker = editableCrosshairAt(at, event.pointerType === 'touch' ? 24 : 18);
   press = {start: at, last: at, moved: false, dragClick: !!marker,
     offset: marker && {x: at.x - marker.x, y: at.y - marker.y}, original: marker && {...state.clicks.at(-1)}};
@@ -858,7 +957,7 @@ stage.addEventListener('pointercancel', () => {
   press = null; stage.style.cursor = trackerConnection?.clickToPlay ? 'pointer' : 'crosshair';
 });
 stage.addEventListener('wheel', event => {
-  if (event.target.closest('#calibration-controls, #setup-panel')) return;
+  if (event.target.closest('#calibration-controls, #setup-panel, #footage-tools, #renderer-notice')) return;
   event.preventDefault();
   if (!state.viewFitted) return;
   const at = stagePoint(event);
@@ -900,6 +999,7 @@ function handlePlaybackKey(key, shiftKey = false) {
 }
 
 document.addEventListener('keydown', event => {
+  if (event.target.closest?.('#footage-tools, #renderer-notice')) return;
   if (event.target.closest?.('#shortcut-dialog')) return;
   if (trackerHoveringVideo && (event.key === ' ' || ['ArrowLeft', 'ArrowRight'].includes(event.key)) && !event.metaKey && !event.ctrlKey && !event.altKey) { if (event.key !== ' ' || !event.repeat) handlePlaybackKey(event.key, event.shiftKey); event.preventDefault(); return; }
   if (trackerBlocked && event.key === 'Escape') { trackerConnection?.onEscape?.(); return; }
@@ -944,7 +1044,7 @@ function fitStage() {
   refresh();
 }
 
-setUpPicture();
+initializePicture();
 new ResizeObserver(fitStage).observe(stage);
 fitStage();
 refreshBar();

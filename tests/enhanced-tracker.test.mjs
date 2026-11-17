@@ -1,7 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {isVeoLink,enhancedEnabled,videoTimestamp,clickMetadata,clickLocation} from '../web/enhanced-tracker.js';
+import {EnhancedTracker,isVeoLink,enhancedEnabled,videoTimestamp,clickMetadata,clickLocation} from '../web/enhanced-tracker.js';
 import {timestampLink} from '../web/video.js';
+
+test('header export control switches to cancel and restores export state after a header render',()=>{
+ const original=globalThis.document;let button={},status={},active=false;const calls=[];
+ try{
+  globalThis.document={querySelector:()=>({querySelector:selector=>selector==='[data-export-footage]'?button:status})};
+  const tracker=Object.assign(Object.create(EnhancedTracker.prototype),{api:{footageState:()=>({active}),exportFootage:()=>calls.push('export'),cancelFootage:()=>calls.push('cancel')}});
+  tracker.updateFootageControls({active:false,available:true,status:''});
+  assert.equal(button.textContent,'Export Footage');assert.equal(button.disabled,false);button.onclick();
+  active=true;tracker.updateFootageControls({active:true,available:true,status:'12% · ~2m remaining'});
+  assert.equal(button.textContent,'Cancel Export');assert.equal(button.disabled,false);assert.equal(status.textContent,'12% · ~2m remaining');button.onclick();
+  button={};status={};tracker.updateFootageControls({active:true,available:true,status:'13% · ~2m remaining'});
+  assert.equal(button.textContent,'Cancel Export');assert.equal(status.textContent,'13% · ~2m remaining');
+  active=false;tracker.updateFootageControls({active:false,available:true,status:'Export canceled.'});
+  assert.equal(button.textContent,'Export Footage');assert.equal(button.disabled,false);assert.deepEqual(calls,['export','cancel']);
+ }finally{if(original===undefined)delete globalThis.document;else globalThis.document=original;}
+});
 
 test('enhanced tracking is opt-in per game and limited to the Veo app host',()=>{
  for(const link of ['https://app.veo.co/matches/game/','http://app.veo.co/matches/game/','app.veo.co/matches/game/'])assert.equal(isVeoLink(link),true);
