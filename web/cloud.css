@@ -1,5 +1,7 @@
 body [hidden]{display:none!important}.cloud-login{max-width:420px;margin:12vh auto;padding:28px}.cloud-login h1{font-size:30px}.cloud-login input{width:100%}.cloud-login button{margin-top:16px}.cloud-account{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.cloud-access-note{padding:12px 16px;background:#f5edcf;border-radius:8px;margin-bottom:16px}.cloud-directory{display:flex;gap:8px;flex-wrap:wrap}.cloud-directory button{text-align:left}.cloud-readonly .player-page-head{display:flex;align-items:center;gap:14px}.cloud-readonly .player-page-head h1{margin:0}.cloud-clips td{white-space:normal;vertical-align:top}.cloud-error{color:#8f3023}.cloud-busy{opacity:.65;pointer-events:none}
 
-.cloud-enabled .topbar{height:auto;min-height:61px;padding-block:12px;flex-wrap:wrap}.topbar .cloud-save-state{display:block;flex-basis:100%;font-size:11px}.cloud-account small{overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.cloud-enabled .topbar{height:auto;min-height:61px;padding-block:12px;flex-wrap:wrap}.topbar .cloud-save-state{display:block;flex-basis:100%;font-size:11px;text-align:right}.cloud-account small{overflow:hidden;text-overflow:ellipsis;max-width:220px}
 
 .cloud-import-conflicts{max-height:55vh;overflow:auto}.cloud-import-conflicts section{margin-bottom:12px}.cloud-import-conflicts label{display:block;margin:10px 0}.cloud-import-conflicts input{width:auto}
+
+.top-actions,.topbar-account{margin-left:auto}.cloud-account{justify-content:flex-end}
