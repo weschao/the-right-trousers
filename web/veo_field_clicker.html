@@ -755,7 +755,7 @@ async function downloadFootage() {
   if (footageController || !pictureReady() || !state.lens || !videoReady()) return;
   const controller = footageController = new AbortController();
   const status = element('footage-status');
-  const snapshot = structuredClone({lens: state.lens, fit: state.fit, drift: state.drift, field: state.field, offset: state.videoStartVeoSeconds});
+  const snapshot = structuredClone({lens: state.lens, fit: state.fit, drift: state.drift, field: state.field, offset: state.videoStartVeoSeconds, timestamps: trackerConnection?.getPointTimestampFile?.({offset: state.videoStartVeoSeconds}) || null});
   const source = video.currentSrc || video.src;
   const name = `veo-${state.match?.slug || 'footage'}-360.mp4`;
   let writable = null;
@@ -768,7 +768,7 @@ async function downloadFootage() {
     const handle = await picker({suggestedName: name, types: [{description: 'MP4 video', accept: {'video/mp4': ['.mp4']}}]});
     controller.signal.throwIfAborted();
     writable = await handle.createWritable();
-    const {exportFootage} = await import('./footage-export.js');
+    const [{exportFootage}, {downloadPointTimestampFile}] = await Promise.all([import('./footage-export.js'), import('./footage-timestamps.js')]);
     const result = await exportFootage({url: source, writable, lens: snapshot.lens, vertexShader: VERTEX_SHADER, fragmentShader: FRAGMENT_SHADER, geometry: VeoField, signal: controller.signal,
       planeAt: seconds => {
         if (!snapshot.fit) return null;
@@ -777,6 +777,15 @@ async function downloadFootage() {
       }, onProgress: progress => { status.textContent = progress.message; refreshFootageControls(); }});
     writable = null; // The exporter committed and closed the file.
     status.textContent = `Saved full game (${formatTime(result.seconds)}) · ${result.width} × ${result.height}. Upload this MP4 to YouTube; 360° processing may take up to an hour.`;
+    if (snapshot.timestamps) {
+      try {
+        const timestampName = downloadPointTimestampFile(snapshot.timestamps, handle.name || name);
+        status.textContent += ` Timestamp file: ${timestampName}.`;
+        if (snapshot.timestamps.missingPoints.length) status.textContent += ` Missing timestamps for points ${snapshot.timestamps.missingPoints.join(', ')}.`;
+      } catch (error) {
+        status.textContent += ` Timestamp download failed: ${error.message}`;
+      }
+    }
   } catch (error) {
     status.textContent = controller.signal.aborted || error.name === 'AbortError' ? 'Export canceled.' : `Export failed: ${error.message}`;
   } finally {

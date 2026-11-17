@@ -160,6 +160,13 @@ test('shared connection waits for iframe load, connects once and cancels pending
  callbacks.onSession({});assert.equal(saved,1);h.connection.dispose();callbacks.onReady(true);callbacks.onSession({});
  assert.deepEqual(h.seeks,[]);assert.equal(saved,1);assert.equal(h.loads.size,0);assert.equal(h.pauses(),1);
 });
+test('the shared viewer supplies point timestamp snapshots from the current game',()=>{
+ const h=connectionHarness();
+ h.connection.game={...h.game,events:[{type:'point_start',line:[],starting:'D',videoTimestamp:'0:10'},{type:'point_end',winner:'us'}]};
+ assert.equal(h.callbacks().getPointTimestampFile({offset:5}).text,'0:05 0-0 pull\n');
+ h.connection.game={...h.game,events:[{type:'point_start',line:[],starting:'O',videoTimestamp:'1:00'}]};
+ assert.equal(h.callbacks().getPointTimestampFile({offset:0}).text,'1:00 0-0 receive\n');
+});
 test('PVL Escape is handled by the shared connection and its listener is removed on exit',()=>{
  let exits=0,prevented=0,stopped=0;const h=connectionHarness({captureEscape:true,onEscape:()=>exits++});
  h.keys.get('keydown')({key:'Escape',preventDefault:()=>prevented++,stopImmediatePropagation:()=>stopped++});
