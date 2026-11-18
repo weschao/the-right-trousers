@@ -604,7 +604,7 @@ const ACTIONS = {
   // a click on the picture at stage coordinates (CSS pixels): always pauses; places the selected cone, or reads the field
   clickAt(screenX, screenY) {
     if (trackerBlocked) return null;
-    if (trackerConnection?.clickToPlay) { if (videoReady()) ACTIONS.togglePlay(); return null; }
+    if (trackerConnection?.clickToPlay && !state.coneMode) { if (videoReady()) ACTIONS.togglePlay(); return null; }
     if (!state.lens || !videoReady()) return null;
     video.pause();
     const direction = VeoField.screenToDirection(state.view, screenX, screenY);
@@ -826,7 +826,7 @@ window.VeoTracker = {
   connect(connection) {
     trackerConnection = connection;
     element('footage-tools').hidden = !!connection.externalFootageControls;
-    stage.style.cursor = connection.clickToPlay ? 'pointer' : 'crosshair';
+    stage.style.cursor = connection.clickToPlay ? 'default' : 'crosshair';
     trackerOpening = !!connection.opening;
     document.body.classList.add('embedded');
     element('close-setup-panel').hidden = !connection.completed;
@@ -845,6 +845,7 @@ window.VeoTracker = {
     if (connection.completed) state.coneMode = false;
     trackerRefresh();
   },
+  setClickToPlay(clickToPlay) { trackerConnection.clickToPlay = !!clickToPlay; if (clickToPlay) state.clicks = []; stage.style.cursor = clickToPlay ? 'default' : 'crosshair'; trackerRefresh(); if (state.view) drawOverlay(); },
   setOpening(opening) { trackerOpening = !!opening; trackerRefresh(); },
   setCompleted(completed) { trackerConnection.completed = !!completed; element('close-setup-panel').hidden = !completed; if (completed) state.coneMode = false; trackerRefresh(); },
   screenOfPixel,
@@ -941,7 +942,7 @@ stage.addEventListener('pointerdown', event => {
 });
 stage.addEventListener('pointermove', event => {
   const at = stagePoint(event);
-  if (!press) { stage.style.cursor = editableCrosshairAt(at) ? 'grab' : trackerConnection?.clickToPlay ? 'pointer' : 'crosshair'; return; }
+  if (!press) { stage.style.cursor = editableCrosshairAt(at) ? 'grab' : trackerConnection?.clickToPlay ? 'default' : 'crosshair'; return; }
   if (!press.moved && Math.hypot(at.x - press.start.x, at.y - press.start.y) <= CLICK_SLOP_PIXELS) return;
   press.moved = true;
   if (press.dragClick) ACTIONS.moveClickAt(at.x - press.offset.x, at.y - press.offset.y);
@@ -963,7 +964,7 @@ stage.addEventListener('pointercancel', () => {
     trackerConnection?.onMove?.({...press.original});
     refresh();
   }
-  press = null; stage.style.cursor = trackerConnection?.clickToPlay ? 'pointer' : 'crosshair';
+  press = null; stage.style.cursor = trackerConnection?.clickToPlay ? 'default' : 'crosshair';
 });
 stage.addEventListener('wheel', event => {
   if (event.target.closest('#calibration-controls, #setup-panel, #footage-tools, #renderer-notice')) return;

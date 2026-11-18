@@ -192,7 +192,7 @@ test('PVL field clicks toggle playback without creating or dragging locations; d
  assert.equal(JSON.stringify(h.state.clicks),before);assert.equal(h.moves.length,0);
  h.handlers.pointerdown(h.pointer(100,100));h.handlers.pointermove(h.pointer(200,200));h.handlers.pointerup(h.pointer(200,200));
  assert.equal(h.pans(),1);assert.equal(h.video.paused,false);assert.equal(JSON.stringify(h.state.clicks),before);
- h.handlers.pointermove(h.pointer(100,100));assert.equal(h.context.stage.style.cursor,'pointer');
+ h.handlers.pointermove(h.pointer(100,100));assert.equal(h.context.stage.style.cursor,'default');
 });
 
 test('live EPT field clicks still capture a location and pause playback',()=>{
@@ -200,6 +200,39 @@ test('live EPT field clicks still capture a location and pause playback',()=>{
  h.handlers.pointerdown(h.pointer(200,100));h.handlers.pointerup(h.pointer(200,100));
  assert.equal(h.video.paused,true);assert.equal(h.state.clicks.length,2);
  assert.equal(h.state.clicks.at(-1).x,20);assert.equal(h.state.clicks.at(-1).y,10);
+});
+
+test('completed EPT uses playback clicks and switches recording on only for rescoring or resuming',()=>{
+ const originalDocument=globalThis.document,h=connectionHarness(),game={...h.game,events:[],finished:true};h.connection.dispose();
+ const modes=[];
+ Object.assign(h.api,{setClickToPlay:value=>{modes.push(value);h.callbacks().clickToPlay=value;},setOpening(){},setCompleted(){},setScoreboard(){}});
+ try{
+  globalThis.document={querySelector:()=>h.frame};
+  const tracker=Object.create(EnhancedTracker.prototype);tracker.bind(game);
+  assert.equal(h.callbacks().clickToPlay,true);
+  game.rescorePointId='point';tracker.bind(game);assert.equal(h.callbacks().clickToPlay,false);
+  delete game.rescorePointId;tracker.bind(game);assert.equal(h.callbacks().clickToPlay,true);
+  game.finished=false;tracker.bind(game);assert.equal(h.callbacks().clickToPlay,false);
+  assert.deepEqual(modes,[false,true,false]);
+ }finally{if(originalDocument===undefined)delete globalThis.document;else globalThis.document=originalDocument;}
+});
+
+test('completed playback clicks need no field fit and never add or drag crosshairs',()=>{
+ for(const fit of [{},null]){
+  const h=clicker();h.context.trackerConnection.clickToPlay=true;h.context.trackerBlocked=false;h.state.fit=fit;
+  const before=JSON.stringify(h.state.clicks);
+  h.handlers.pointerdown(h.pointer(100,100));h.handlers.pointerup(h.pointer(100,100));assert.equal(h.video.paused,true);
+  h.handlers.pointerdown(h.pointer(100,100));h.handlers.pointerup(h.pointer(100,100));assert.equal(h.video.paused,false);
+  h.handlers.pointerdown(h.pointer(100,100));h.handlers.pointermove(h.pointer(200,200));h.handlers.pointerup(h.pointer(200,200));
+  assert.equal(h.pans(),1);assert.equal(h.moves.length,0);assert.equal(JSON.stringify(h.state.clicks),before);
+ }
+});
+
+test('switching to completed playback clears the previous recording crosshair',()=>{
+ const h=clicker();h.context.trackerRefresh=()=>{};h.context.drawOverlay=()=>{};
+ vm.runInContext(source.slice(source.indexOf('  setClickToPlay('),source.indexOf('  setOpening(')).trim().replace(/^setClickToPlay\(/,'function setClickToPlay(').replace(/,$/,''),h.context);
+ h.context.setClickToPlay(true);assert.equal(h.state.clicks.length,0);assert.equal(h.context.stage.style.cursor,'default');
+ h.context.setClickToPlay(false);assert.equal(h.context.stage.style.cursor,'crosshair');
 });
 
 // Exercise the iframe's seek queue, including restoration of a saved playback position.
