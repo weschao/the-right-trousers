@@ -5,7 +5,7 @@ import {playerProjection} from '../../../web/player-projection.js';
 export function createApi({url,serviceKey,fetcher=fetch}){
  const cors={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'authorization,apikey,content-type','Access-Control-Allow-Methods':'POST,OPTIONS','Cache-Control':'no-store','Content-Type':'application/json'};
  const respond=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:cors});
- async function db(path,body){const response=await fetcher(url+'/rest/v1/'+path,{method:body===undefined?'GET':'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});const value=await response.json();if(!response.ok){const error=new Error(value.message||'Database request failed');error.status=value.code==='40001'?409:value.code==='42501'?403:500;throw error;}return value;}
+ async function db(path,body){const response=await fetcher(url+'/rest/v1/'+path,{method:body===undefined?'GET':'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});const value=await response.json();if(!response.ok){const error=new Error(value.message||'Database request failed');error.status=value.code==='40001'?409:value.code==='42501'?403:value.code==='22023'?400:500;throw error;}return value;}
  function unpack(rows){const library=emptyData();for(const row of rows){if(row.deleted)continue;if(row.kind==='settings')library.settings=row.payload;else library[{team:'teams',game:'games',source:'sources'}[row.kind]].push(row.payload);}return library;}
  return async request=>{
   if(request.method==='OPTIONS')return new Response(null,{status:204,headers:cors});
@@ -25,12 +25,19 @@ export function createApi({url,serviceKey,fetcher=fetch}){
    if(input.action==='members'){
     if(!admin)return respond({error:'Admin required'},403);
     const users=[];for(let page=1;;page++){const response=await fetcher(url+`/auth/v1/admin/users?page=${page}&per_page=100`,{headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey}});if(!response.ok)throw new Error('Unable to load users');const result=await response.json();users.push(...result.users.map(u=>({id:u.id,email:u.email})));if(result.users.length<100)break;}
-    return respond({users,memberships:await db('trt_memberships?library_id=eq.'+encodeURIComponent(libraryId))});
+    return respond({users,memberships:await db('trt_memberships?library_id=eq.'+encodeURIComponent(libraryId)),pendingMemberships:await db('trt_email_memberships?library_id=eq.'+encodeURIComponent(libraryId))});
    }
    if(input.action==='membership'){
     if(!admin)return respond({error:'Admin required'},403);
-    if(typeof input.userId!=='string'||!['player','stats','leadership',null].includes(input.role)||(input.teamId!==null&&typeof input.teamId!=='string'))return respond({error:'Invalid membership'},400);
-    await db('rpc/trt_set_membership',{p_actor:user.id,p_library:libraryId,p_user:input.userId,p_team:input.teamId,p_role:input.role});return respond({saved:true});
+    if(!['player','stats','leadership',null].includes(input.role)||(input.teamId!==null&&typeof input.teamId!=='string'))return respond({error:'Invalid membership'},400);
+    if(input.email!==undefined){
+     const email=typeof input.email==='string'?input.email.trim().toLowerCase():'';if(email.length>254||!/^[^\s@]+@[^\s@]+$/.test(email))return respond({error:'Enter a valid email address'},400);
+     await db('rpc/trt_set_email_membership',{p_actor:user.id,p_library:libraryId,p_email:email,p_team:input.teamId,p_role:input.role});
+    }else{
+     if(typeof input.userId!=='string')return respond({error:'Invalid membership'},400);
+     await db('rpc/trt_set_membership',{p_actor:user.id,p_library:libraryId,p_user:input.userId,p_team:input.teamId,p_role:input.role});
+    }
+    return respond({saved:true});
    }
    const snapshot=await db('rpc/trt_snapshot',{p_library:libraryId}),rows=snapshot.entities,library=unpack(rows);
    if(input.action==='library'){
