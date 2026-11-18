@@ -853,7 +853,7 @@ window.VeoTracker = {
   exportFootage: downloadFootage,
   cancelFootage() { footageController?.abort(); },
   seconds: veoSecondsNow,
-  seekVeo(seconds) { const target = Math.max(0, seconds - state.videoStartVeoSeconds); if (video.readyState) ACTIONS.seek(target); else trackerPendingSeek = target; },
+  seekVeo(seconds) { const target = Math.max(0, seconds - state.videoStartVeoSeconds); trackerPendingSeek = null; if (video.readyState && video.duration > 0) ACTIONS.seek(target); else trackerPendingSeek = target; },
   pause() { video.pause(); },
   focus() { stage.focus({preventScroll: true}); },
   play() { if (trackerReady()) video.play().catch(error => { say(error.message); refreshBar(); }); },

@@ -143,22 +143,22 @@ function connectionHarness(options={},loaded=true){
  const connection=new EnhancedConnection(frame,game,options).start();
  return {connection,frame,api,game,loads,keys,seeks,callbacks:()=>callbacks,pauses:()=>pauses};
 }
-test('both viewer modes share one-shot seeking through readiness changes',()=>{
+test('both viewer modes seek without waiting for field calibration and only seek once',()=>{
  for(const options of [{opening:true,completed:false},{opening:false,completed:true,captureEscape:true}]){
   const h=connectionHarness({...options,initialSeconds:42}),callbacks=h.callbacks();
   assert.equal(callbacks.url,h.game.videoLink);assert.equal(callbacks.session,h.game.veoSession);
   assert.equal(callbacks.opening,options.opening);assert.equal(callbacks.completed,options.completed);
-  callbacks.onReady(false);assert.deepEqual(h.seeks,[]);callbacks.onReady(true);callbacks.onReady(false);callbacks.onReady(true);assert.deepEqual(h.seeks,[42]);
+  callbacks.onReady(false);assert.deepEqual(h.seeks,[42]);callbacks.onReady(true);callbacks.onReady(false);callbacks.onReady(true);assert.deepEqual(h.seeks,[42]);
   h.connection.seek(0);callbacks.onReady(true);assert.deepEqual(h.seeks,[42,0]);
  }
- const h=connectionHarness();h.callbacks().onReady(true);assert.deepEqual(h.seeks,[]);
+ const h=connectionHarness();h.callbacks().onReady(false);assert.deepEqual(h.seeks,[]);h.connection.seek(15);assert.deepEqual(h.seeks,[15]);
 });
 test('shared connection waits for iframe load, connects once and cancels pending work on disposal',()=>{
  let saved=0;const h=connectionHarness({initialSeconds:10,onSession:()=>saved++},false);
  assert.equal(h.callbacks(),undefined);h.frame.contentWindow.VeoTracker=h.api;h.loads.get('load')();
- const callbacks=h.callbacks();h.loads.get('load')();assert.equal(h.callbacks(),callbacks);
+ const callbacks=h.callbacks();h.loads.get('load')();assert.equal(h.callbacks(),callbacks);assert.deepEqual(h.seeks,[10]);h.connection.seek(20);assert.deepEqual(h.seeks,[10,20]);
  callbacks.onSession({});assert.equal(saved,1);h.connection.dispose();callbacks.onReady(true);callbacks.onSession({});
- assert.deepEqual(h.seeks,[]);assert.equal(saved,1);assert.equal(h.loads.size,0);assert.equal(h.pauses(),1);
+ assert.deepEqual(h.seeks,[10,20]);assert.equal(saved,1);assert.equal(h.loads.size,0);assert.equal(h.pauses(),1);
 });
 test('the shared viewer supplies point timestamp snapshots from the current game',()=>{
  const h=connectionHarness();
@@ -200,4 +200,16 @@ test('live EPT field clicks still capture a location and pause playback',()=>{
  h.handlers.pointerdown(h.pointer(200,100));h.handlers.pointerup(h.pointer(200,100));
  assert.equal(h.video.paused,true);assert.equal(h.state.clicks.length,2);
  assert.equal(h.state.clicks.at(-1).x,20);assert.equal(h.state.clicks.at(-1).y,10);
+});
+
+// Exercise the iframe's seek queue, including restoration of a saved playback position.
+test('explicit video seeks supersede session restoration before and after metadata loads',()=>{
+ const handlers={},video={readyState:0,duration:NaN,currentTime:0},state={videoStartVeoSeconds:60};
+ const context=vm.createContext({video,state,Math,trackerPendingSeek:999,ACTIONS:{seek:seconds=>{video.currentTime=Math.min(seconds,video.duration);}}});
+ vm.runInContext('const seekVeo = '+source.match(/seekVeo\(seconds\) \{[^\n]+/)[0].replace('seekVeo(seconds)', '(seconds)=>').replace(/,$/,'')+';',context);
+ vm.runInContext(source.slice(source.indexOf("video.addEventListener('loadedmetadata'"),source.indexOf("for (const name of ['pause', 'seeked'])")),Object.assign(context,{video:Object.assign(video,{addEventListener:(name,fn)=>handlers[name]=fn})}));
+ vm.runInContext('seekVeo(102.5)',context);assert.equal(context.trackerPendingSeek,42.5);
+ video.readyState=1;video.duration=600;handlers.loadedmetadata();assert.equal(video.currentTime,42.5);assert.equal(context.trackerPendingSeek,null);
+ context.trackerPendingSeek=999;vm.runInContext('seekVeo(60)',context);assert.equal(video.currentTime,0);assert.equal(context.trackerPendingSeek,null);
+ handlers.loadedmetadata();assert.equal(video.currentTime,0);
 });
