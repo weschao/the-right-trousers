@@ -1,3 +1,4 @@
+import {drawScoreboard,scoreboardAt,loadScoreboardLogos,SCOREBOARD_WIDTH,SCOREBOARD_HEIGHT} from './scoreboard.js';
 import {Input,Output,UrlSource,MP4,QTFF,Mp4OutputFormat,StreamTarget,Conversion,Quality,canEncodeVideo} from './vendor/mediabunny.js';
 import {sphericalMovieBox} from './spherical-mp4.js';
 
@@ -64,12 +65,27 @@ export async function selectFootageEncoding(sourceWidth,maxTextureSize,frameRate
  }
  throw Error('This browser has no suitable MP4 video encoder. Try a current desktop Chrome or Edge browser.');
 }
-export function createFootageRenderer({vertexShader,fragmentShader,lens,geometry}){
+// Project the score bug onto a flat plane in front of the initial 360° view.
+// It remains readable in the headset/player instead of stretching over the sphere.
+export function scoreboardShader(source){return source.replace('out vec4 colour;',`uniform sampler2D scoreBug;
+uniform int showScoreBug;
+out vec4 colour;`).replace(/}\s*$/,`
+  if (showScoreBug == 1 && inView.z > 0.0) {
+    vec2 at = vec2((inView.x / inView.z + .45) / .9, (inView.y / inView.z - .402) / .144);
+    if (all(greaterThanEqual(at, vec2(0.0))) && all(lessThanEqual(at, vec2(1.0)))) {
+      vec4 bug = texture(scoreBug, at); colour = vec4(mix(colour.rgb, bug.rgb, bug.a), 1.0);
+    }
+  }
+}`);}
+export function createFootageRenderer({vertexShader,fragmentShader,lens,geometry,scoreboard=null,logos=new Map(),scoreboardOffset=0,duration=Infinity,frameDuration=1001/30000}){
  const canvas=document.createElement('canvas');
  const gl=canvas.getContext('webgl2',{antialias:false,preserveDrawingBuffer:true,alpha:false});
  if(!gl)throw Error('Footage export needs WebGL 2. Try a current desktop Chrome or Edge browser.');
- const program=gl.createProgram(),shaders=[],buffer=gl.createBuffer(),texture=gl.createTexture();
- const dispose=()=>{gl.deleteTexture(texture);gl.deleteBuffer(buffer);gl.deleteProgram(program);shaders.forEach(s=>gl.deleteShader(s));gl.getExtension('WEBGL_lose_context')?.loseContext();canvas.width=canvas.height=1;};
+ const program=gl.createProgram(),shaders=[],buffer=gl.createBuffer(),texture=gl.createTexture(),scoreTexture=gl.createTexture();
+ const bug=scoreboard?document.createElement('canvas'):null;let previousRow=null;
+ if(bug){bug.width=SCOREBOARD_WIDTH;bug.height=SCOREBOARD_HEIGHT;}
+ if(scoreboard)fragmentShader=scoreboardShader(fragmentShader);
+ const dispose=()=>{gl.deleteTexture(scoreTexture);gl.deleteTexture(texture);gl.deleteBuffer(buffer);gl.deleteProgram(program);shaders.forEach(s=>gl.deleteShader(s));gl.getExtension('WEBGL_lose_context')?.loseContext();canvas.width=canvas.height=1;};
  try{
   for(const [type,source] of [[gl.VERTEX_SHADER,vertexShader],[gl.FRAGMENT_SHADER,fragmentShader]]){
    const shader=gl.createShader(type);shaders.push(shader);gl.shaderSource(shader,source);gl.compileShader(shader);
@@ -82,6 +98,12 @@ export function createFootageRenderer({vertexShader,fragmentShader,lens,geometry
   for(const p of [gl.TEXTURE_WRAP_S,gl.TEXTURE_WRAP_T])gl.texParameteri(gl.TEXTURE_2D,p,gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameterf(gl.TEXTURE_2D,gl.TEXTURE_MAX_LOD,3);
   const at=name=>gl.getUniformLocation(program,name);
+  if(scoreboard){
+   gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,scoreTexture);
+   for(const p of [gl.TEXTURE_WRAP_S,gl.TEXTURE_WRAP_T])gl.texParameteri(gl.TEXTURE_2D,p,gl.CLAMP_TO_EDGE);
+   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+   gl.uniform1i(at('scoreBug'),1);gl.uniform1i(at('showScoreBug'),1);gl.activeTexture(gl.TEXTURE0);
+  }
   gl.uniform1i(at('frame'),0);gl.uniform1f(at('pixelRatio'),1);gl.uniform1i(at('sphericalProjection'),1);
   gl.uniformMatrix3fv(at('rigToLens'),false,lens.lensToRig.flatMap(t=>columnMajor([0,1,2].map(r=>[0,1,2].map(c=>t[c][r])))));
   gl.uniform3fv(at('lensOrigin'),lens.lensToRig.flatMap(t=>t.slice(0,3).map(r=>r[3])));
@@ -99,18 +121,25 @@ export function createFootageRenderer({vertexShader,fragmentShader,lens,geometry
   };
   return {canvas,maxTextureSize:Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE),gl.getParameter(gl.MAX_RENDERBUFFER_SIZE),...gl.getParameter(gl.MAX_VIEWPORT_DIMS)),
    canRender,
-   draw(source,width,height,plane){
+   draw(source,width,height,plane,seconds=0){
     if(!canRender(width,height))throw Error('The browser could not retain the export frame size. Close other video tabs and retry the export.');
     gl.viewport(0,0,width,height);gl.uniform2f(at('size'),width,height);gl.uniform1f(at('focal'),width/(2*Math.PI));
     gl.uniformMatrix3fv(at('viewRotation'),false,columnMajor(horizonRotation(plane)));
     gl.uniform4f(at('ground'),...(plane?[...plane.down,plane.heightMetres]:[0,0,0,0]));
+    if(bug){
+     const row=scoreboardAt(scoreboard,seconds+scoreboardOffset,duration+scoreboardOffset,frameDuration);
+     if(row!==previousRow){
+      previousRow=row;const ctx=bug.getContext('2d');ctx.clearRect(0,0,bug.width,bug.height);drawScoreboard(ctx,scoreboard,row,logos);
+      gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,scoreTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,bug);gl.activeTexture(gl.TEXTURE0);
+     }
+    }
     gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,source);gl.generateMipmap(gl.TEXTURE_2D);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
     return canvas;
    },dispose};
  }catch(error){dispose();throw error;}
 }
 
-export async function exportFootage({url,writable,lens,vertexShader,fragmentShader,geometry,planeAt=()=>null,signal,onProgress=()=>{}}){
+export async function exportFootage({url,writable,lens,vertexShader,fragmentShader,geometry,planeAt=()=>null,scoreboard=null,scoreboardOffset=0,signal,onProgress=()=>{}}){
  if(!globalThis.VideoEncoder||!globalThis.VideoDecoder)throw Error('Footage export needs WebCodecs video encoding. Open EPT in a current desktop Chrome or Edge browser.');
  if(!writable)throw Error('Choose an MP4 file to save before exporting footage.');
  let input,output,conversion,renderer,committed=false;
@@ -124,14 +153,15 @@ export async function exportFootage({url,writable,lens,vertexShader,fragmentShad
   if(!track)throw Error('The source footage has no video track.');
   const seconds=await track.computeDuration();canceled();
   if(!(await track.canDecode()))throw Error('This browser cannot decode the Veo footage. Try desktop Chrome or Edge.');
-  renderer=createFootageRenderer({vertexShader,fragmentShader,lens,geometry});
+  const logos=await loadScoreboardLogos(scoreboard);canceled();
   const stats=await track.computePacketStats(120);canceled();
   const frameRate=stats.averagePacketRate||30000/1001;
+  renderer=createFootageRenderer({vertexShader,fragmentShader,lens,geometry,scoreboard,logos,scoreboardOffset,duration:seconds,frameDuration:1/frameRate});
   const {width,height,quality,codec}=await selectFootageEncoding(track.displayWidth,renderer.maxTextureSize,frameRate,canEncodeVideo,canceled,renderer.canRender);
   const file=createFootageFileOutput(writable,width,height);output=file.output;
   conversion=await Conversion.init({input,output,tracks:'primary',trim:{start:0},showWarnings:false,
    video:{codec,quality,keyFrameInterval:2,processedWidth:width,processedHeight:height,process:sample=>{
-    canceled();return renderer.draw(sample.toCanvasImageSource(),width,height,planeAt(sample.timestamp));
+    canceled();return renderer.draw(sample.toCanvasImageSource(),width,height,planeAt(sample.timestamp),sample.timestamp);
    }},audio:{codec:'aac'},tags:{title:'Veo footage — full game',comment:'The Right Trousers EPT · monoscopic equirectangular 360°'}});
   canceled();
   if(!conversion.isValid||!conversion.utilizedTracks.includes(track))throw Error('The source footage could not be converted to MP4 in this browser.');

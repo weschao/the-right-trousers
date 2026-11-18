@@ -13,7 +13,7 @@ function clicker(){
  const context=vm.createContext({state,video,window:{},document:{addEventListener:(name,fn)=>handlers['key:'+name]=fn},stage:{style:{},addEventListener:(name,fn)=>handlers[name]=fn,setPointerCapture(){}},
   screenOfPixel:(u,v)=>({x:u,y:v}),stagePoint:e=>({x:e.clientX,y:e.clientY}),guarded:fn=>fn,refresh(){},say(){},groundPlaneNow:()=>null,veoSecondsNow:()=>99,videoReady:()=>true,frameAt:()=>2970,
   setPlaybackSpeed:speed=>{video.playbackRate=Math.max(0.1,Math.min(2,speed));},
-  trackerBlocked:true,trackerCanMoveClick:true,trackerHoveringVideo:false,trackerConnection:{onMove:click=>moves.push({...click})},CLICK_SLOP_PIXELS:4,
+  jerseySample:null,trackerBlocked:true,trackerCanMoveClick:true,trackerHoveringVideo:false,trackerConnection:{onMove:click=>moves.push({...click})},CLICK_SLOP_PIXELS:4,
   VeoField:{screenToDirection:(view,x,y)=>({x,y}),sampleDirection:(lens,p)=>p.x<0?[]:[{u:p.x,v:p.y}],pixelToField:(lens,fit,drift,seconds,u,v)=>v<0?null:{x:u/10,y:v/10},panBy:view=>{pans++;return view;}}});
  vm.runInContext(source.slice(source.indexOf('const ACTIONS = {'),source.indexOf('window.ACTIONS = ACTIONS;')+'window.ACTIONS = ACTIONS;'.length),context);
  vm.runInContext(source.slice(source.indexOf('let press = null;'),source.indexOf("stage.addEventListener('wheel'")),context);

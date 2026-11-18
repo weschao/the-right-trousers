@@ -30,7 +30,7 @@ export function lineAtEvent(game,point,side,eventId){const start=game.events.fin
 export function playerThrowaways(games,playerId){return games.flatMap(game=>pointsOf(game).flatMap((point,pointIndex)=>point.events.filter(e=>e.side==='us'&&(e.type==='pass'&&e.throwerId===playerId&&['throwaway','block','stall'].includes(e.outcome)||e.type==='turnover'&&e.playerId===playerId&&['stall','block'].includes(e.reason))).map(event=>({game,point,pointIndex,event}))));}
 export function mirrorGame(game){
  const flip=side=>side==='us'?'them':side==='them'?'us':side,swap=(event,first,second)=>{const firstValue=event[first];event[first]=event[second];event[second]=firstValue;};
- return {...game,events:game.events.map(source=>{const e={...source};if(e.side)e.side=flip(e.side);
+ return {...game,...(game.scoreboard?{scoreboard:{...game.scoreboard,us:game.scoreboard.them,them:game.scoreboard.us}}:{}),events:game.events.map(source=>{const e={...source};if(e.side)e.side=flip(e.side);
   if(e.type==='point_start'){const line=e.line;e.line=e.opponentLine||[];e.opponentLine=line;e.starting=e.starting==='O'?'D':'O';e.direction=-e.direction;}
   if(e.type==='possession_start'||e.type==='pass'){swap(e,'markerId','opponentMarkerId');}
   if(e.type==='pass')swap(e,'receiverDefenderId','opponentReceiverDefenderId');
