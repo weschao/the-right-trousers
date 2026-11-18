@@ -1,4 +1,4 @@
-import {gamesForTeam,advancedStatsFor,offensiveScoringEfficiency,matchupBreakdown,gameState,UNGUARDED,pointEdgeRows,mirrorGame,pointsOf} from './core.js';
+import {gamesForTeam,advancedStatsFor,offensiveScoringEfficiency,matchupBreakdown,gameState,UNGUARDED,pointEdgeRows,mirrorGame} from './core.js';
 import {playerOccurrences,connectionStats} from './player-detail.js';
 import {eventVideoLink,pointVideos,importedPointTimestamps,timestampSeconds,videoSource} from './video.js';
 
@@ -18,21 +18,20 @@ export function playerProjection(library,teamId,playerId,{gameIds=[],huckYards=3
  const matchup={offense:new Map(),defense:new Map()},breakdowns=new Map(games.map(g=>[g,matchupBreakdown(g,playerId,'us',ose(g))])),excluded=new Map(),pointCache=new Map();
  for(const g of games)for(const row of breakdowns.get(g).defense){if(!row.opponentId||row.opponentId===UNGUARDED)continue;if(!excluded.has(row.opponentId))excluded.set(row.opponentId,new Map());excluded.get(row.opponentId).set(g.id,row.pointNumbers);}
  const defensiveRows=g=>breakdowns.get(g).defense.map(row=>{
-  if(!row.opponentId||row.opponentId===UNGUARDED)return {...row,baselineEdge:0,baselineOpportunities:0,markedThrowawayEdge:0};
+  if(!row.opponentId||row.opponentId===UNGUARDED)return {...row,baselineEdge:0,baselineOpportunities:0,baselineEdgeNoThrowaways:0};
   const opponentTeam=library.teams.find(t=>t.players.some(p=>p.id===row.opponentId)),others=library.games.filter(game=>game.id!==g.id&&(game.teamId===opponentTeam?.id||game.opponents?.some(p=>p.id===row.opponentId)));
-  let baselineEdge=0,baselineOpportunities=0;
+  let baselineEdge=0,baselineOpportunities=0,baselineEdgeNoThrowaways=0;
   for(const game of [g,...others]){const mirrored=game===g||game.teamId!==opponentTeam?.id,roster=game===g?g.opponents:mirrored?game.opponents:opponentTeam.players,gameOse=game===g?ose(g):game.settings?.ose??(opponentTeam?.name==='Mischief 2026'?offensiveScoringEfficiency(gamesForTeam(library,opponentTeam.id),opponentTeam.id):.56),key=JSON.stringify([game.id,mirrored,gameOse]);
    if(!pointCache.has(key))pointCache.set(key,pointEdgeRows(mirrored?mirrorGame(game):game,(roster||[]).map(p=>p.id),gameOse,settings.secondaryPreviousShare??.3,settings.secondaryPreviousPreviousShare??.1));
    const guarded=new Set(excluded.get(row.opponentId)?.get(game.id)||(game===g?row.pointNumbers:[]));
-   pointCache.get(key).forEach((byPlayer,index)=>{const r=byPlayer.get(row.opponentId);if(guarded.has(index+1)||!r)return;baselineEdge+=r.throwingEdge+r.receivingEdge+(settings.includeSecondaryInTotal?r.secondaryThrowingEdge:0);baselineOpportunities+=r.opportunities;});
+   pointCache.get(key).forEach((byPlayer,index)=>{const r=byPlayer.get(row.opponentId);if(guarded.has(index+1)||!r)return;const noThrowaways=r.throwingEdgeNoThrowaways+r.receivingEdge+(settings.includeSecondaryInTotal?r.secondaryThrowingEdgeNoThrowaways:0);baselineEdge+=r.throwingEdge+r.receivingEdge+(settings.includeSecondaryInTotal?r.secondaryThrowingEdge:0);baselineEdgeNoThrowaways+=noThrowaways;baselineOpportunities+=r.opportunities;});
   }
-  const markedThrowawayEdge=pointsOf(g).filter(p=>!p.events.some(e=>e.type==='unattributed_goal')).flatMap(p=>p.events).filter(e=>e.type==='pass'&&e.side==='them'&&['throwaway','block','stall'].includes(e.outcome)&&e.throwerId===row.opponentId&&e.markerId===playerId).reduce(total=>total-ose(g),0);
-  return {...row,baselineEdge,baselineOpportunities,markedThrowawayEdge};
+  return {...row,baselineEdge,baselineOpportunities,baselineEdgeNoThrowaways};
  });
  for(const g of games){const breakdown={...breakdowns.get(g),defense:defensiveRows(g)};for(const side of ['offense','defense'])for(const row of breakdown[side]){
   const key=JSON.stringify([row.opponentId,g.opponent]),prior=matchup[side].get(key);
   if(!prior)matchup[side].set(key,{...row,name:name(row.opponentId,g),teamName:g.opponent,pointNumbers:[]});
-  else for(const [field,value] of Object.entries(row))if(typeof value==='number'&&!field.endsWith('PerPoint'))prior[field]=field==='baselineEdge'||field==='baselineOpportunities'?value:prior[field]+value;
+  else for(const [field,value] of Object.entries(row))if(typeof value==='number'&&!field.endsWith('PerPoint'))prior[field]=field==='baselineEdge'||field==='baselineEdgeNoThrowaways'||field==='baselineOpportunities'?value:prior[field]+value;
  }}
  const received=connectionStats(games,playerId,'received',ose),thrown=connectionStats(games,playerId,'thrown',ose),occurrences=playerOccurrences(games,playerId,huckYards),clips={};
  occurrences.unknownReceived=received.find(r=>r.id===null)?.passes||[];occurrences.unknownThrown=thrown.find(r=>r.id===null)?.passes||[];
@@ -48,5 +47,5 @@ export function playerProjection(library,teamId,playerId,{gameIds=[],huckYards=3
   // Only the video setup of games represented on this authorized PD page is shared.
   // No events, revisions or imported source records accompany it.
   viewers:Object.fromEntries(games.filter(g=>g.enhancedTracker&&videoSource(g.videoLink)?.kind==='veo').map(g=>[g.id,{id:g.id,videoLink:g.videoLink,field:g.field,veoSession:g.veoSession,enhancedTracker:true,finished:true}])),
-  matchups:Object.fromEntries(Object.entries(matchup).map(([side,rows])=>[side,[...rows.values()].map(row=>({...row,edgePerPoint:row.points?row.edge/row.points:0,edgePerPointPlusMinus:row.points?selectedSummary.totalEdgePerPoint-row.edge/row.points:null,edgeAllowedPerPoint:row.points?row.edgeAllowed/row.points:0,edgeAllowedPerPointPlusMinus:row.baselineOpportunities&&row.points?row.baselineEdge/row.baselineOpportunities-row.edgeAllowed/row.points:null,edgeAllowedPerPointPlusMinusNoMarkedThrowaways:row.baselineOpportunities&&row.points?row.baselineEdge/row.baselineOpportunities-(row.edgeAllowed-row.markedThrowawayEdge)/row.points:null}))])),clips};
+  matchups:Object.fromEntries(Object.entries(matchup).map(([side,rows])=>[side,[...rows.values()].map(row=>({...row,edgePerPoint:row.points?row.edge/row.points:0,edgePerPointPlusMinus:row.points?selectedSummary.totalEdgePerPoint-row.edge/row.points:null,edgeAllowedPerPoint:row.points?row.edgeAllowed/row.points:0,edgeAllowedPerPointPlusMinus:row.baselineOpportunities&&row.points?row.baselineEdge/row.baselineOpportunities-row.edgeAllowed/row.points:null,edgeAllowedPerPointPlusMinusNoMarkedThrowaways:row.baselineOpportunities&&row.points?row.baselineEdgeNoThrowaways/row.baselineOpportunities-row.edgeAllowedNoThrowaways/row.points:null}))])),clips};
 }
