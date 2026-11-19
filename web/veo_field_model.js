@@ -444,23 +444,20 @@
             followCamOnly: !videoUrl && videos.length > 0};
   }
 
-  // a bookmark to click on a Veo match page: it copies {match, video, lens} for pasting into the clicker. the
-  // page's record of what it loaded is full (250 entries) long before Interactive Player opens, so the first
-  // click empties and enlarges it; after Interactive Player has loaded its two files, the second click finds them
-  function collectVeoLinks() {
-    if (!/\/matches\//.test(location.pathname)) { alert('Open a Veo match page first.'); return; }
-    const names = performance.getEntriesByType('resource').map(entry => entry.name);
-    const video = names.find(name => /\/panorama\/[^?#]*\.mp4/.test(name));
-    const lens = names.find(name => /\/[^/?#]+\.veo([?#]|$)/.test(name));
-    if (!video || !lens) {
-      const alreadyOpen = [...document.querySelectorAll('video')].some(element => /\/panorama\//.test(element.currentSrc));
-      performance.clearResourceTimings();
-      performance.setResourceTimingBufferSize(4000);
-      alert(alreadyOpen ? 'Interactive Player was already open. Reload this page, click this bookmark, open Interactive Player, then click it again.'
-        : 'Ready. Now open Interactive Player, then click this bookmark again.');
-      return;
-    }
-    const text = JSON.stringify({match: location.origin + location.pathname, video: video.split('#')[0], lens});
+  // a bookmark to click on a Veo match page: it copies {match, video, lens} for pasting into the clicker. it asks
+  // Veo's own API with the login token Veo's page keeps in localStorage (measured 2026-11-18): without the token
+  // /videos/ lists only the follow-cam; with it, the panorama too, its render_settings being the .veo lens file
+  async function collectVeoLinks() {
+    const slug = (/\/matches\/([^/?#]+)/.exec(location.pathname) || [])[1];
+    if (!slug) { alert('Open a Veo match page first.'); return; }
+    const oidcKey = Object.keys(localStorage).find(key => key.startsWith('oidc.user:'));
+    const token = (oidcKey && JSON.parse(localStorage.getItem(oidcKey)).access_token) || localStorage.getItem('auth_token');
+    if (!token) { alert('Sign in to Veo on this page first.'); return; }
+    const response = await fetch(`/api/app/matches/${slug}/videos/`, {headers: {Authorization: `Bearer ${token}`}});
+    if (!response.ok) { alert(`Veo did not list this match's videos (HTTP ${response.status}). Reload the page and try again.`); return; }
+    const panorama = (await response.json()).find(video => video.render_type === 'panorama');
+    if (!panorama || !panorama.render_settings) { alert('Veo lists no panorama video for this match.'); return; }
+    const text = JSON.stringify({match: `${location.origin}/matches/${slug}/`, video: panorama.url.split('#')[0], lens: panorama.render_settings});
     const show = () => prompt('Copy this, then paste it into the Veo field clicker:', text);
     if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => alert('Copied. Paste it into the Veo field clicker.'), show);
     else show();

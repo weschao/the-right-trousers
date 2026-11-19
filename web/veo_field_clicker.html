@@ -118,7 +118,7 @@
     <div class="group">
       <input id="veoUrl" type="text" placeholder="Paste the Veo match URL, or what the bookmark copied" spellcheck="false">
       <span id="veoLinks" class="quiet"></span>
-      <a id="bookmarklet" title="Drag this to your bookmarks bar. On a Veo match page: click it, open Interactive Player, click it again, then paste here.">Veo → clicker</a>
+      <a id="bookmarklet" title="Drag this to your bookmarks bar. On a Veo match page: click it, then paste here.">Veo → clicker</a>
     </div>
     <div class="group">
       or <label class="file" id="videoLabel">Video file<input id="videoFile" type="file" accept="video/*,.mp4,.mov"></label>
@@ -558,8 +558,8 @@ function refreshBar() {
   element('setup-status').textContent = trackerConnection && (!state.lens || !videoReady()) && state.message !== 'Session loaded' && !state.message.startsWith('Now get the video:') ? state.message : '';
   element('setup-instructions').textContent = !state.lens || !state.videoName
     ? trackerConnection
-      ? 'Drag the Veo → clicker link below to your bookmarks bar. On the Veo match page, click it, open Interactive Player, then click it again. Paste the copied video and lens links below.'
-      : 'Drag "Veo → clicker" to your bookmarks bar. On the Veo match page: click it, open Interactive Player, click it again. Then paste here. (Or choose a downloaded video and its .veo lens file.)'
+      ? 'Drag the Veo → clicker link below to your bookmarks bar. On the Veo match page, click it, then paste the copied video and lens links below.'
+      : 'Drag "Veo → clicker" to your bookmarks bar. On the Veo match page, click it, then paste here. (Or choose a downloaded video and its .veo lens file.)'
     : !videoReady() ? 'Loading the video…' : '';
 }
 
@@ -590,7 +590,7 @@ const ACTIONS = {
     }
     say(links.videoUrl && links.lensUrl ? 'Streaming the video from Veo.'
       : links.followCamOnly ? 'That is the follow-cam video. The clicker needs the two-lens panorama: use the bookmark on the match page.'
-      : links.match ? 'Now get the video: on the match page click the "Veo → clicker" bookmark, open Interactive Player, click it again, and paste here.'
+      : links.match ? 'Now get the video: on the match page click the "Veo → clicker" bookmark and paste here.'
       : text.trim() ? 'That is not a Veo match URL or a copied set of links' : '');
     refresh();
   },
