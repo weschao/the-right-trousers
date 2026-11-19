@@ -12,7 +12,7 @@ export function permits(context,permission,teamId=null){
 export function hasPermission(context,permission){return !!context?.admin||(context?.memberships||[]).some(member=>(ROLE_PERMISSIONS[member.role]||[]).includes(permission));}
 export function visibleTeams(context,teams){return teams.filter(team=>permits(context,'players.read',team.id));}
 export function editorLibrary(context,library){
- const teams=visibleTeams(context,library.teams).map(team=>permits(context,'games.read',team.id)?team:{id:team.id,name:team.name,players:team.players.map(({id,name,number,gender})=>({id,name,number,gender}))}),ids=new Set(teams.filter(team=>permits(context,'games.read',team.id)).map(team=>team.id));
+ const teams=visibleTeams(context,library.teams).map(team=>permits(context,'games.read',team.id)?team:{id:team.id,name:team.name,logo:team.logo,players:team.players.map(({id,name,number,gender})=>({id,name,number,gender}))}),ids=new Set(teams.filter(team=>permits(context,'games.read',team.id)).map(team=>team.id));
  // A shared game is shown from an authorized team's side. The API converts edits
  // back to its canonical recording side before validating and saving them.
  const games=library.games.filter(game=>ids.has(game.teamId)||ids.has(game.opponentTeamId)).map(game=>ids.has(game.teamId)?game:opponentPerspective(game,library.teams));
