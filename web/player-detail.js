@@ -42,6 +42,17 @@ export function playerOccurrences(games,playerId,huckYards=35){
  return result;
 }
 
+// games in libraryGameIds order (unknown ids last); within a game by timestamp (seconds, or null) when every row of that game has one, else by point then event order
+export function orderOccurrences(rows,libraryGameIds,timestampOf){
+ const position=new Map(libraryGameIds.map((id,index)=>[id,index])),byGame=new Map();
+ for(const row of rows){if(!byGame.has(row.game.id))byGame.set(row.game.id,[]);byGame.get(row.game.id).push(row);}
+ return [...byGame].sort(([a],[b])=>(position.get(a)??Infinity)-(position.get(b)??Infinity)).flatMap(([,gameRows])=>{
+  const timed=gameRows.map((row,order)=>({row,order,seconds:timestampOf(row)}));
+  const byTimestamp=timed.every(item=>item.seconds!=null);
+  return timed.sort((a,b)=>(byTimestamp?a.seconds-b.seconds:(a.row.pointIndex??Infinity)-(b.row.pointIndex??Infinity))||a.order-b.order).map(item=>item.row);
+ });
+}
+
 // edge is the selected player's own share of each pass (receiveValue when receiving, throwValue when throwing), never both sides summed
 // teammates on the other end of this player's passes: 'received' groups passes thrown to the player by thrower, 'thrown' groups the player's passes by receiver
 // passes with no known partner (null, or the {} some Statto imports carry) share one row with id null; every row lists its passes with the score at the start of their point
