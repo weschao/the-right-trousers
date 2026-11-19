@@ -5,7 +5,7 @@ import {emptyData} from '../web/core.js';
 
 const config={enabled:true,url:'https://cache-test.example',functionName:'trt-api'},account=()=>({user:{id:'user'},admin:true,memberships:[],libraries:[{id:'library',revision:4}]}),library=()=>({data:{...emptyData(),teams:[{id:'team',name:'Saved team',players:[]}]},context:{admin:true,memberships:[]},versions:{'team:team':2},revision:4});
 function setup(){let value=null;const cache={read:async()=>structuredClone(value),write:async(key,next)=>{value=structuredClone(next);}},calls=[],store=new CloudStore(config,cache);store.request=async action=>{calls.push(action);return action==='context'?account():library();};return {store,cache,calls,get value(){return value;}};}
-async function storageTest(run){const previous=globalThis.sessionStorage;globalThis.sessionStorage={getItem:()=>null,setItem(){},removeItem(){}};try{await run();}finally{if(previous===undefined)delete globalThis.sessionStorage;else globalThis.sessionStorage=previous;}}
+async function storageTest(run){const previous=Object.fromEntries(['localStorage','sessionStorage'].map(key=>[key,globalThis[key]]));globalThis.localStorage=globalThis.sessionStorage={getItem:()=>null,setItem(){},removeItem(){}};try{await run();}finally{for(const [key,value] of Object.entries(previous)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}}}
 
 test('refresh uses an IndexedDB snapshot only after checking current server access and revision',()=>storageTest(async()=>{
  const state=setup(),first=await state.store.load();await state.store.cacheQueue;
@@ -32,8 +32,7 @@ test('failed authentication and removed access never fall back to cached data',(
 }));
 
 test('sign out clears cached data after pending writes',()=>storageTest(async()=>{
- const previous=globalThis.localStorage;globalThis.localStorage={removeItem(){}};
- try{const state=setup();await state.store.load();let notified=false;state.store.listeners.add(()=>{assert.equal(state.value,null);notified=true;});await state.store.signOut();assert.equal(state.value,null);assert.equal(state.store.baseline,null);assert.equal(notified,true);}finally{if(previous===undefined)delete globalThis.localStorage;else globalThis.localStorage=previous;}
+ const state=setup();await state.store.load();let notified=false;state.store.listeners.add(()=>{assert.equal(state.value,null);notified=true;});await state.store.signOut();assert.equal(state.value,null);assert.equal(state.store.baseline,null);assert.equal(notified,true);
 }));
 
 test('successful saves are followed by a fresh download when the server revision advances',()=>storageTest(async()=>{

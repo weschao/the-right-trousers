@@ -151,3 +151,17 @@ test('Google PKCE ties the callback to this device and does not persist Google p
   store.native=true;store.nativeBrowser={open:async({url})=>destination=url};await store.beginGoogle();assert.equal(new URL(destination).searchParams.get('redirect_to'),'righttrousers://auth/callback');
  }finally{for(const [key,value] of Object.entries(previous)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}}
 });
+
+test('sign-in survives closing the site, and an expired refresh token returns to the sign-in screen',async()=>{
+ const previous=Object.fromEntries(['localStorage','sessionStorage'].map(key=>[key,globalThis[key]])),persistent=new Map(),storage=items=>({getItem:key=>items.get(key)??null,setItem:(key,value)=>items.set(key,String(value)),removeItem:key=>items.delete(key)});
+ try{
+  globalThis.localStorage=storage(persistent);globalThis.sessionStorage=storage(new Map());
+  const first=new CloudStore({url:'https://project.supabase.co'});first.remember({access_token:'access',refresh_token:'refresh',expires_in:3600});
+  globalThis.sessionStorage=storage(new Map());
+  const reopened=new CloudStore({url:'https://project.supabase.co'});assert.equal(await reopened.accessToken(),'access');
+  // another tab rotated the token first: adopt it rather than reusing the old refresh token
+  reopened.session.expires_at=0;persistent.set('right-trousers-auth',JSON.stringify({access_token:'other-tab',refresh_token:'rotated',expires_at:Date.now()/1000+3600}));reopened.auth=async()=>assert.fail('refreshed with a stale token');assert.equal(await reopened.accessToken(),'other-tab');
+  reopened.session.expires_at=0;persistent.set('right-trousers-auth',JSON.stringify(reopened.session));reopened.auth=async()=>{throw Object.assign(new Error('Invalid Refresh Token'),{status:400});};await assert.rejects(reopened.accessToken(),error=>error.status===401);
+  await reopened.signOut();assert.equal(persistent.has('right-trousers-auth'),false);
+ }finally{for(const [key,value] of Object.entries(previous)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}}
+});
