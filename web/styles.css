@@ -71,3 +71,4 @@ dialog.wide-modal{max-width:1100px}.throwaway-table{table-layout:fixed;white-spa
 .team-logo-button:disabled{cursor:default}
 .team-logo-image{object-fit:contain;background:white}
 .access-table .access-delete{min-height:28px;padding:3px 10px;font-size:11px}
+.glossary-section{margin-bottom:16px}.glossary-table{width:100%;border-collapse:collapse;font-size:13px;line-height:1.5}.glossary-table th,.glossary-table td{text-align:left;vertical-align:top;padding:8px 12px 8px 0;border-top:1px solid var(--line)}.glossary-table thead th{border-top:0;color:var(--muted);font-size:11px;text-transform:uppercase}.glossary-table tbody th{white-space:nowrap;color:var(--ink)}@media(max-width:700px){.glossary-table tbody th{white-space:normal}}
