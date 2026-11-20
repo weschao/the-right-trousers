@@ -48,7 +48,7 @@ export const GLOSSARY = [
   ['Forced TA','Throwaways forced as the marker.','Opponent throwaways and stalls while the player was marking.'],
   ['Breaks allowed','Breaks given up as the marker.','Opponent breaks thrown against the player as marker.'],
   ['Opp scored %','How often the opponent scored with the player on defense.','Defensive-opportunity points the opponent won ÷ D opp. Opportunities in parentheses. The D start variant only count points that began on D.'],
-   ['Opp scored % (O start)','How often the opponent scored, when the player\'s team started on offense.','Breaks ÷ O points, both when the player was on the field. Opportunities in parentheses. You can think of this as (1 - the player\'s personal hold rate.)'],
+   ['Hold rate','How often our team held when the player was on the field for a point that started on offense.','1 − (opponent goals ÷ all O-start points the player was on the field for, including points where we scored). Points in parentheses. Shows — with no O-start points.'],
  ]},
  {title:'Pulls',entries:[
   ['Pulls','Pulls thrown.','Points where the player pulled.'],
