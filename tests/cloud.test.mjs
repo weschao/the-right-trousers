@@ -52,7 +52,7 @@ test('database policies, API scopes, atomic saves and stale clients',async t=>{
    if(u.pathname==='/auth/v1/admin/users')return ok({users:Object.entries(ids).map(([role,id])=>({id,email:role+'@example.com'}))});
    try{
     const route=u.pathname.replace('/rest/v1/','');
-    if(route.startsWith('rpc/')){const functionName=route.slice(4),args=Object.values(body),sql=`select ${functionName}(${args.map((_,i)=>'$'+(i+1)).join(',')}) as value`;return ok((await pg.query(sql,args.map(value=>Array.isArray(value)?JSON.stringify(value):value))).rows[0].value);}
+    if(route.startsWith('rpc/')){const functionName=route.slice(4),args=Object.values(body),sql=`select ${functionName}(${args.map((_,i)=>'$'+(i+1)).join(',')}) as value`;const value=(await pg.query(sql,args.map(value=>Array.isArray(value)?JSON.stringify(value):value))).rows[0].value;return value===null||value===""?new Response(null,{status:204}):ok(value);}
     assert.ok(['trt_admins','trt_libraries','trt_memberships','trt_email_memberships'].includes(route));const clauses=[],values=[];
     for(const [key,value] of u.searchParams){if(key==='order')continue;assert.match(key,/^[a-z_]+$/);if(value.startsWith('eq.')){values.push(value.slice(3));clauses.push(`${key}=$${values.length}`);}else if(value.startsWith('in.')){const list=value.slice(4,-1).split(',');clauses.push(`${key} in (${list.map(v=>{values.push(v);return '$'+values.length;}).join(',')})`);}}
     return ok((await pg.query('select * from '+route+(clauses.length?' where '+clauses.join(' and '):''),values)).rows);
