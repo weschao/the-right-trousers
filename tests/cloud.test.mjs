@@ -64,7 +64,7 @@ test('database policies, API scopes, atomic saves and stale clients',async t=>{
    assert.equal((await grant('  FUTURE@Example.com  ','a','player')).status,200);
    assert.equal((await grant('future@example.com','a','stats')).status,200);
    assert.equal((await grant('future@example.com',null,'player')).status,200);
-   const listed=await call('admin',{action:'members'});
+   const listed=await call('admin',{action:'members'});assert.deepEqual(listed.value.admins,[ids.admin]);
    assert.equal(listed.status,200);
    assert.deepEqual(listed.value.pendingMemberships.map(m=>[m.email,m.team_id,m.role]).sort(),[['future@example.com',null,'player'],['future@example.com','a','stats']].sort());
    assert.equal((await pg.query('select count(*)::int as n from auth.users where email=$1',['future@example.com'])).rows[0].n,0);

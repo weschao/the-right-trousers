@@ -26,7 +26,7 @@ export function createApi({url,serviceKey,fetcher=fetch}){
    if(input.action==='members'){
     if(!admin)return respond({error:'Admin required'},403);
     const users=[];for(let page=1;;page++){const response=await fetcher(url+`/auth/v1/admin/users?page=${page}&per_page=100`,{headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey}});if(!response.ok)throw new Error('Unable to load users');const result=await response.json();users.push(...result.users.map(u=>({id:u.id,email:u.email})));if(result.users.length<100)break;}
-    return respond({users,memberships:await db('trt_memberships?library_id=eq.'+encodeURIComponent(libraryId)),pendingMemberships:await db('trt_email_memberships?library_id=eq.'+encodeURIComponent(libraryId))});
+    return respond({users,admins:(await db('trt_admins')).map(row=>row.user_id),memberships:await db('trt_memberships?library_id=eq.'+encodeURIComponent(libraryId)),pendingMemberships:await db('trt_email_memberships?library_id=eq.'+encodeURIComponent(libraryId))});
    }
    if(input.action==='membership'){
     if(!admin)return respond({error:'Admin required'},403);
