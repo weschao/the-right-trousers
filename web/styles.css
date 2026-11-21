@@ -82,3 +82,4 @@ dialog.wide-modal{max-width:1100px}.throwaway-table{table-layout:fixed;white-spa
 .swatch-chip{width:22px;height:22px;border-radius:50%;border:1px solid var(--line);background:var(--paper)}
 .jersey-swatch:disabled{cursor:default}
 .jersey-swatch.empty .swatch-chip{border:1.5px dashed #b9c2b2}
+.stats-table th.centered-header{text-align:center}
