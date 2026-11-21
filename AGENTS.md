@@ -39,3 +39,12 @@ EPT means enhanced pitch tracker.
 
 - PD = player details screen; PS = player statistics.
 - Player Video Library (PVL) is the modal opened by clicking a statistic such as goals, turnovers, or blocks in PD or PS.
+
+## Cloud (Supabase)
+
+- Every `commit()`/`persist()` sends each changed record's full payload: one stat click re-uploads the whole game (~100 KB JSON). `CloudStore.save` collapses saves queued behind an in-flight request into one request carrying the newest copy. Since migration 202611200002, `trt_audit` stores only kind/id/revision/deleted per change (the payload copy doubled WAL: measured in PGlite at ~55 KB per save before, ~28 KB after). Nothing in the app reads `trt_audit`; old versions of a record are not kept anywhere.
+- The dashboard's ~1 GB "WAL" is Postgres's retained WAL up to `max_wal_size` (1 GB default), not database growth. Lowering it means more frequent checkpoints, i.e. more disk IO.
+- Each open, visible client polls `context` every 15 s. When the library revision changed it sends its per-record `stamps` to the `changes` action and gets back only the records whose stamp differs, plus `removed` keys. Full `library` downloads happen only on first load, after an access change, for an IndexedDB copy without stamps, and on the Refresh button (`load(null,{full:true})`). A save that no one else interleaved advances the client's revision, so the stat-taker's own polls download nothing.
+- A stamp is the record's revision, except a game shown from the opponent's side, whose stamp also carries the recording team's revision (`opponentPerspective` copies that team's name and roster). A save returns no stamp for a game the server converted back from the opponent's side: the round trip is not exact, so the client must refetch it.
+- The `trt-api` worker keeps every row it has read in memory (deep-frozen; anything that mutates server data throws). Each `library`/`changes`/`player` request lists `kind,id,revision,deleted` without payloads and fetches only rows whose revision moved; a save puts its rows in the cache. Nothing calls `trt_snapshot` any more. Simulated 30-minute live game on the 2026-11-19 library (one save per 10 s, four tabs polling): payload read from Postgres 4072 MB before, 56 MB with one warm worker, 136 MB if workers restart every 150 s; client downloads 1580 MB before, 83 MB after. Nearly all of what remains is the save path reading the changed game and every team.
+- Deploy `trt-api` before the web client: a new client against an old function gets `Unknown action` on `changes`.
