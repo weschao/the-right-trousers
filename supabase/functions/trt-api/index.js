@@ -1,6 +1,10 @@
 import {emptyData,validateData,opponentPerspective} from '../../../web/core.js';
-import {permits,editorLibrary,visibleTeams} from '../../../web/access.js';
+import {permits,editorLibrary} from '../../../web/access.js';
 import {playerProjection} from '../../../web/player-projection.js';
+
+const KINDS=['team','game','source','settings'];
+// cached rows are shared by every request a worker serves, so a change in place must fail loudly
+function deepFreeze(value){if(value&&typeof value==='object'&&!Object.isFrozen(value)){Object.freeze(value);for(const item of Object.values(value))deepFreeze(item);}return value;}
 
 export function createApi({url,serviceKey,fetcher=fetch}){
  const cors={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'authorization,apikey,content-type','Access-Control-Allow-Methods':'POST,OPTIONS','Cache-Control':'no-store','Content-Type':'application/json'};
@@ -8,6 +12,27 @@ export function createApi({url,serviceKey,fetcher=fetch}){
  // void RPCs answer 204 with an empty body
  async function db(path,body){const response=await fetcher(url+'/rest/v1/'+path,{method:body===undefined?'GET':'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});const text=await response.text(),value=text?JSON.parse(text):null;if(!response.ok){const error=new Error(value.message||'Database request failed');error.status=value.code==='40001'?409:value.code==='42501'?403:value.code==='22023'?400:500;if(error.status===500)error.message+=' ('+path.split('?')[0]+')';throw error;}return value;}
  function unpack(rows){const library=emptyData();for(const row of rows){if(row.deleted)continue;if(row.kind==='settings')library.settings=row.payload;else library[{team:'teams',game:'games',source:'sources'}[row.kind]].push(row.payload);}return library;}
+ const quote=value=>'"'+value.replace(/[\\"]/g,'\\$&')+'"',scope=libraryId=>'trt_entities?library_id=eq.'+encodeURIComponent(libraryId);
+ async function rowsById(libraryId,kind,ids){const queries=[];for(let start=0;start<ids.length;start+=100)queries.push(db(scope(libraryId)+'&kind=eq.'+kind+'&id=in.('+encodeURIComponent(ids.slice(start,start+100).map(quote).join(','))+')'));return (await Promise.all(queries)).flat();}
+ // every row of each library this worker has read, by kind:id. A request lists the rows' revisions without
+ // their payloads and fetches only the rows that changed since, so a warm worker never rereads the whole library.
+ const libraryRows=new Map();
+ async function currentRows(libraryId){
+  const cached=libraryRows.get(libraryId)||new Map(),index=await db(scope(libraryId)+'&select=kind,id,revision,deleted&order=kind.asc,id.asc');
+  const stale=KINDS.map(kind=>index.filter(row=>row.kind===kind&&!row.deleted&&cached.get(kind+':'+row.id)?.revision!==row.revision).map(row=>row.id));
+  const fetched=new Map((await Promise.all(KINDS.map((kind,position)=>rowsById(libraryId,kind,stale[position])))).flat().map(row=>[row.kind+':'+row.id,deepFreeze(row)]));
+  const rows=new Map(index.map(row=>{const key=row.kind+':'+row.id,old=cached.get(key);return [key,fetched.get(key)||(old?.revision===row.revision?old:row)];}));
+  libraryRows.set(libraryId,rows);return [...rows.values()];
+ }
+ // what this user may see, with a stamp per record that changes whenever the copy they receive does:
+ // a game shown from the opponent's side also changes when the team that recorded it does
+ function visibleView(context,rows){
+  const filtered=editorLibrary(context,unpack(rows)),byKey=new Map(rows.map(row=>[row.kind+':'+row.id,row])),records=new Map(),versions={},stamps={};
+  for(const [kind,list] of [['team',filtered.teams],['game',filtered.games],['source',filtered.sources]])for(const payload of list)records.set(kind+':'+payload.id,{kind,id:payload.id,payload});
+  if(byKey.has('settings:settings'))records.set('settings:settings',{kind:'settings',id:'settings',payload:filtered.settings});
+  for(const [key,record] of records){const row=byKey.get(key);versions[key]=row.revision;stamps[key]=record.kind==='game'&&record.payload.teamId!==row.payload.teamId?row.revision+':'+byKey.get('team:'+row.payload.teamId).revision:String(row.revision);}
+  return {data:filtered,records,versions,stamps};
+ }
  return async request=>{
   if(request.method==='OPTIONS')return new Response(null,{status:204,headers:cors});
   if(request.method!=='POST')return respond({error:'POST required'},405);
@@ -44,31 +69,34 @@ export function createApi({url,serviceKey,fetcher=fetch}){
     }
     return respond({saved:true});
    }
-   let snapshot,rows,library;
-   if(input.action==='save'){
-    // a save only needs every team (roster and reference checks) plus the stored copy of each changed record,
-    // so it never loads or revalidates the other games
-    if(!Array.isArray(input.changes)||input.changes.length>2000)return respond({error:'Invalid changes'},400);
-    const quote=value=>'"'+value.replace(/[\\"]/g,'\\$&')+'"',scope='trt_entities?library_id=eq.'+encodeURIComponent(libraryId),queries=[db(scope+'&kind=eq.team')];
-    for(const kind of ['game','source']){const changedIds=[...new Set(input.changes.filter(c=>c?.kind===kind&&typeof c.id==='string').map(c=>c.id))];for(let start=0;start<changedIds.length;start+=100)queries.push(db(scope+'&kind=eq.'+kind+'&id=in.('+encodeURIComponent(changedIds.slice(start,start+100).map(quote).join(','))+')'));}
-    rows=(await Promise.all(queries)).flat();library=unpack(rows);
-   }else{snapshot=await db('rpc/trt_snapshot',{p_library:libraryId});rows=snapshot.entities;library=unpack(rows);}
+   // read before any row, so the rows a request returns are never older than this revision
+   const revision=libraries.find(l=>l.id===libraryId).revision;
    if(input.action==='library'){
-    const filtered=editorLibrary(context,library),keys=new Set([...filtered.teams.map(t=>'team:'+t.id),...filtered.games.map(g=>'game:'+g.id),...filtered.sources.map(s=>'source:'+s.id),'settings:settings']);
-    return respond({data:filtered,revision:snapshot.revision,versions:Object.fromEntries(rows.filter(r=>keys.has(r.kind+':'+r.id)).map(r=>[r.kind+':'+r.id,r.revision])),context,teams:visibleTeams(context,library.teams).map(t=>({id:t.id,name:t.name,players:t.players.map(({id,name,number,gender})=>({id,name,number,gender}))}))});
+    const view=visibleView(context,await currentRows(libraryId));
+    return respond({data:view.data,revision,versions:view.versions,stamps:view.stamps,context,teams:view.data.teams.map(t=>({id:t.id,name:t.name,players:t.players.map(({id,name,number,gender})=>({id,name,number,gender}))}))});
+   }
+   // the records whose stamp differs from the caller's copy, and the keys it holds that it may no longer see
+   if(input.action==='changes'){
+    const known=input.stamps;if(!known||typeof known!=='object'||Array.isArray(known)||Object.values(known).some(stamp=>typeof stamp!=='string'))return respond({error:'Invalid stamps'},400);
+    const view=visibleView(context,await currentRows(libraryId)),changed=[...view.records.keys()].filter(key=>known[key]!==view.stamps[key]);
+    return respond({revision,context,records:changed.map(key=>view.records.get(key)),removed:Object.keys(known).filter(key=>!view.records.has(key)),versions:Object.fromEntries(changed.map(key=>[key,view.versions[key]])),stamps:Object.fromEntries(changed.map(key=>[key,view.stamps[key]]))});
    }
    if(input.action==='player'){
     if(!permits(context,'players.read',input.teamId))return respond({error:'Player unavailable'},403);
     const huckYards=Number(input.huckYards??35);if(!Number.isFinite(huckYards)||huckYards<0||huckYards>1000||!Array.isArray(input.gameIds||[])||(input.gameIds||[]).some(id=>typeof id!=='string'))return respond({error:'Invalid filters'},400);
-    return respond(playerProjection(library,input.teamId,input.playerId,{gameIds:input.gameIds||[],huckYards}));
+    return respond(playerProjection(unpack(await currentRows(libraryId)),input.teamId,input.playerId,{gameIds:input.gameIds||[],huckYards}));
    }
    if(input.action==='save'){
     if(!Array.isArray(input.changes)||input.changes.length>2000)return respond({error:'Invalid changes'},400);
-    const next=structuredClone(library),keys=new Set();
+    // a save only needs every team (roster and reference checks) plus the stored copy of each changed record,
+    // so it never loads or revalidates the other games
+    const changedIds=kind=>[...new Set(input.changes.filter(c=>c?.kind===kind&&typeof c.id==='string').map(c=>c.id))];
+    const rows=(await Promise.all([db(scope(libraryId)+'&kind=eq.team'),rowsById(libraryId,'game',changedIds('game')),rowsById(libraryId,'source',changedIds('source'))])).flat(),library=unpack(rows);
+    const next=structuredClone(library),keys=new Set(),converted=new Set();
     for(const c of input.changes){
      const key=c.kind+':'+c.id;if(keys.has(key)||!['team','game','source','settings'].includes(c.kind)||typeof c.id!=='string'||!Number.isSafeInteger(c.revision)||c.revision<0)return respond({error:'Invalid change'},400);keys.add(key);
      const old=rows.find(r=>r.kind===c.kind&&r.id===c.id);
-     if(c.kind==='game'&&!c.deleted&&old&&c.payload?.teamId!==old.team_id&&c.payload?.teamId===old.payload.opponentTeamId&&c.payload?.opponentTeamId===old.team_id){c.payload=opponentPerspective(c.payload,library.teams);delete c.payload.opponentPerspective;}
+     if(c.kind==='game'&&!c.deleted&&old&&c.payload?.teamId!==old.team_id&&c.payload?.teamId===old.payload.opponentTeamId&&c.payload?.opponentTeamId===old.team_id){c.payload=opponentPerspective(c.payload,library.teams);delete c.payload.opponentPerspective;converted.add(key);}
      const teamId=c.deleted?old?.team_id:c.kind==='team'?c.id:c.payload?.teamId;
      const permission=c.kind==='game'?(c.deleted?'games.delete':old?'games.update':'games.create'):c.kind==='team'?'teams.update':c.kind==='settings'?'settings.update':'library.read';
      const primaryTeam=c.kind==='game'&&old?old.team_id:teamId;
@@ -78,7 +106,12 @@ export function createApi({url,serviceKey,fetcher=fetch}){
      if(!c.deleted){if(c.payload?.id!==c.id)return respond({error:'Invalid record ID'},400);next[collection].push(c.payload);}
     }
     validateData(next);
-    const result=await db('rpc/trt_apply_changes',{p_user:user.id,p_library:libraryId,p_changes:input.changes});return respond({versions:result});
+    const result=await db('rpc/trt_apply_changes',{p_user:user.id,p_library:libraryId,p_changes:input.changes}),[saved]=await db('trt_libraries?id=eq.'+encodeURIComponent(libraryId)+'&select=revision');
+    // the saved payloads are exactly what the caller holds, except a game converted back from the opponent's side,
+    // so those get no stamp and the caller's next refresh fetches the server's copy
+    const cached=libraryRows.get(libraryId),stamps={};
+    for(const {kind,id,revision:stored} of result){const key=kind+':'+id,change=input.changes.find(c=>c.kind===kind&&c.id===id);cached?.set(key,deepFreeze({kind,id,revision:stored,deleted:!!change.deleted,payload:change.payload}));if(!change.deleted&&!converted.has(key))stamps[key]=String(stored);}
+    return respond({versions:result,revision:saved.revision,stamps});
    }
    return respond({error:'Unknown action'},400);
   }catch(error){return respond({error:error.status?error.message:error.message?.startsWith('Invalid game file:')?error.message:'Request failed'},error.status||((error instanceof SyntaxError||error.message?.startsWith('Invalid game file:'))?400:500));}
