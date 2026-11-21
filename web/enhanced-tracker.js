@@ -1,5 +1,5 @@
 import {pointTimestampFile} from './footage-timestamps.js';
-import {scoreboardData,JERSEY_SAMPLE_VERSION} from './scoreboard.js';
+import {scoreboardData,JERSEY_SAMPLE_VERSION,swatchForSample} from './scoreboard.js';
 // The copied Veo clicker runs in a persistent same-origin frame. Recording a play
 // updates the surrounding tracker without unloading its video or WebGL context.
 export function isVeoLink(value){try{const url=new URL(/^app\.veo\.co(?:[/?#]|$)/i.test(String(value).trim())?'https://'+String(value).trim():value);return ['http:','https:'].includes(url.protocol)&&url.hostname.toLowerCase()==='app.veo.co';}catch{return false;}}
@@ -29,7 +29,7 @@ export class EnhancedTracker {
  saveScoreboardColors(colors,previousColors={}){const g=this.game;if(!g?.finished)return;let changed=false;
   const similar=(a,b)=>/^#[0-9a-f]{6}$/i.test(a||'')&&/^#[0-9a-f]{6}$/i.test(b||'')&&[1,3,5].every(i=>Math.abs(parseInt(a.slice(i,i+2),16)-parseInt(b.slice(i,i+2),16))<=12),legacyPair=['us','them'].every(side=>g.scoreboard?.[side]?.color&&!g.scoreboard[side].source)&&['us','them'].some(side=>similar(g.scoreboard[side].color,previousColors?.[side]?.color)&&!similar(g.scoreboard[side].color,colors[side]?.color));
   for(const side of ['us','them']){const saved=g.scoreboard?.[side],previous=previousColors?.[side],legacy=!saved?.source&&(legacyPair||previous&&similar(saved?.color,previous.color)&&!!saved?.mixed===!!previous.mixed);
-   if(colors[side]&&(!saved?.color||saved.source==='auto'&&(saved.sampleVersion||0)<JERSEY_SAMPLE_VERSION||legacy)){g.scoreboard??={};g.scoreboard[side]={...saved,...colors[side],source:'auto',sampleVersion:JERSEY_SAMPLE_VERSION};changed=true;}}
+   if(colors[side]&&(!saved?.color||saved.source==='auto'&&(saved.sampleVersion||0)<JERSEY_SAMPLE_VERSION||legacy)){g.scoreboard??={};const jerseys=this.teams.find(team=>team.id===(side==='us'?g.teamId:g.opponentTeamId))?.jerseys;g.scoreboard[side]={...saved,...colors[side],color:swatchForSample(colors[side].color,jerseys),source:'auto',sampleVersion:JERSEY_SAMPLE_VERSION};changed=true;}}
   if(changed){this.api?.setScoreboard(scoreboardData(g,this.teams));this.onSave();}}
  updateFootageControls(state){if(!state)return;const controls=document.querySelector('[data-footage-tools]'),button=controls?.querySelector?.('[data-export-footage]'),status=controls?.querySelector?.('[data-footage-status]');if(!button||!status)return;const label=state.active?'Cancel Export':'Export Footage';if(button.textContent!==label)button.textContent=label;button.disabled=!state.active&&!state.available;button.title=state.active?'Cancel the footage export':'Save the full game as a YouTube 360° MP4';if(status.textContent!==state.status)status.textContent=state.status;button.onkeydown=event=>{if(event.key===' '||event.key==='Enter')event.stopPropagation();};button.onclick=()=>{if(this.api?.footageState?.()?.active)this.api.cancelFootage();else this.api?.exportFootage();};}
  seek(seconds){this.connection?.seek(seconds);}

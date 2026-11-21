@@ -3,6 +3,9 @@ import {timestampSeconds,importedPointTimestamps} from './video.js';
 
 const colour=value=>/^#[\da-f]{6}$/i.test(value||'')?value:null;
 export function luminance(hex){const rgb=hex.slice(1).match(/../g).map(v=>parseInt(v,16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;}
+export const JERSEY_SWATCHES=[['dark','Dark'],['light','Light'],['alternate','Alternate']];
+// a sampled color is classed light or dark first, then replaced by the team's swatch of that class; no swatch keeps the sample
+export function swatchForSample(sampled,jerseys){const kind=luminance(sampled)>.179?'light':'dark';return colour(jerseys?.[kind])||sampled;}
 export const textColour=background=>luminance(background)>.179?'#000000':'#ffffff';
 export function jerseyColours(kits={}){
  const us=colour(kits.us?.color)||'#f4f4f4',them=colour(kits.them?.color)||'#202124',mixedUs=!!kits.us?.mixed,mixedThem=!!kits.them?.mixed;
