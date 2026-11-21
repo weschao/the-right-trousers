@@ -204,6 +204,7 @@ function finishJerseySample(color=null) { const callback=jerseySample;jerseySamp
 element('cancel-jersey-sample').onclick=()=>finishJerseySample();
 async function setScoreboard(data) {
   scoreboard = data;const current = data;
+  if (state.view) drawOverlay();
   const logos = await loadScoreboardLogos(data);
   if (scoreboard !== current) return;
   scoreboardLogos = logos;
