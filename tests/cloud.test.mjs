@@ -35,7 +35,7 @@ test('database policies, API scopes, atomic saves and stale clients',async t=>{
  const pg=new PGlite();
  try{
   await pg.exec('create role anon; create role authenticated; create role service_role bypassrls; create schema auth; create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);');
-  for(const name of ['202611160001_shared_library.sql','202611160002_initial_admin.sql','202611160003_email_memberships.sql'])await pg.exec(await readFile(new URL('../supabase/migrations/'+name,import.meta.url),'utf8'));
+  for(const name of ['202611160001_shared_library.sql','202611160002_initial_admin.sql','202611160003_email_memberships.sql','202611200001_usage.sql'])await pg.exec(await readFile(new URL('../supabase/migrations/'+name,import.meta.url),'utf8'));
   for(const [role,id] of Object.entries(ids))await pg.query('insert into auth.users values($1,$2,$3)',[id,role==='admin'?'weschao@gmail.com':role+'@example.com',role==='unverified'?null:new Date().toISOString()]);
   const libraryId=(await pg.query('select id from trt_libraries')).rows[0].id;
   const save=async(user,changes)=>pg.query('select trt_apply_changes($1,$2,$3::jsonb) as value',[ids[user],libraryId,JSON.stringify(changes)]);
@@ -53,12 +53,20 @@ test('database policies, API scopes, atomic saves and stale clients',async t=>{
    try{
     const route=u.pathname.replace('/rest/v1/','');
     if(route.startsWith('rpc/')){const functionName=route.slice(4),args=Object.values(body),sql=`select ${functionName}(${args.map((_,i)=>'$'+(i+1)).join(',')}) as value`;const value=(await pg.query(sql,args.map(value=>Array.isArray(value)?JSON.stringify(value):value))).rows[0].value;return value===null||value===""?new Response(null,{status:204}):ok(value);}
-    assert.ok(['trt_admins','trt_libraries','trt_memberships','trt_email_memberships'].includes(route));const clauses=[],values=[];
+    assert.ok(['trt_admins','trt_libraries','trt_memberships','trt_email_memberships','trt_usage'].includes(route));const clauses=[],values=[];
     for(const [key,value] of u.searchParams){if(key==='order')continue;assert.match(key,/^[a-z_]+$/);if(value.startsWith('eq.')){values.push(value.slice(3));clauses.push(`${key}=$${values.length}`);}else if(value.startsWith('in.')){const list=value.slice(4,-1).split(',');clauses.push(`${key} in (${list.map(v=>{values.push(v);return '$'+values.length;}).join(',')})`);}}
     return ok((await pg.query('select * from '+route+(clauses.length?' where '+clauses.join(' and '):''),values)).rows);
    }catch(error){return ok({message:error.message,code:error.code},400);}
   };
   const api=createApi({url:'https://example.supabase.co',serviceKey:'test-only',fetcher}),call=async(role,input)=>{const response=await api(new Request('https://example.supabase.co/functions/v1/trt-api',{method:'POST',headers:{Authorization:'Bearer '+role},body:JSON.stringify({libraryId,...input})}));return {status:response.status,value:await response.json()};};
+  await t.test('usage accumulates per user and is listed to admins only',async()=>{
+   assert.equal((await call('player',{action:'usage',totalSeconds:30,viewingSeconds:10})).status,200);
+   assert.equal((await call('player',{action:'usage',totalSeconds:20,viewingSeconds:20})).status,200);
+   assert.equal((await call('player',{action:'usage',totalSeconds:5,viewingSeconds:6})).status,400);
+   assert.equal((await call('player',{action:'usage',totalSeconds:-1,viewingSeconds:0})).status,400);
+   assert.equal((await call('player',{action:'members'})).status,403);
+   const row=(await call('admin',{action:'members'})).value.usage.find(u=>u.user_id===ids.player);assert.deepEqual([Number(row.total_seconds),Number(row.viewing_seconds)],[50,30]);
+  });
   await t.test('email grants can be updated and revoked before an account exists',async()=>{
    const grant=(email,teamId,role)=>call('admin',{action:'membership',email,teamId,role});
    assert.equal((await grant('  FUTURE@Example.com  ','a','player')).status,200);

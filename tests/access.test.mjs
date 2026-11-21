@@ -12,3 +12,10 @@ test('admins get an admin row and are not listed as having no access',()=>{
  const rows=accessRows({users:[{id:'u1',email:'boss@example.com'},{id:'u2',email:'al@example.com'}],admins:['u1'],memberships:[{user_id:'u1',team_id:'a',role:'stats'}],pendingMemberships:[]});
  assert.deepEqual(rows.map(row=>[row.email,row.teamId,row.role]),[['al@example.com',null,null],['boss@example.com',null,'admin'],['boss@example.com','a','stats']]);
 });
+
+test('access rows carry usage on each user\'s first row only',async()=>{
+ const {accessRows,formatDuration}=await import('../web/access.js');
+ const rows=accessRows({users:[{id:'u',email:'a@x.com'}],admins:[],memberships:[{user_id:'u',team_id:'t1',role:'player'},{user_id:'u',team_id:'t2',role:'stats'}],pendingMemberships:[{email:'p@x.com',team_id:null,role:'player'}],usage:[{user_id:'u',viewing_seconds:'3600',total_seconds:'7260'}]});
+ assert.deepEqual(rows.map(r=>[r.email,r.viewingSeconds,r.totalSeconds]),[['a@x.com',3600,7260],['a@x.com',null,null],['p@x.com',null,null]]);
+ assert.deepEqual([null,0,1800,3600,7260].map(formatDuration),['—','0m','30m','1h 00m','2h 01m']);
+});

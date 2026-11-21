@@ -23,10 +23,14 @@ export function createApi({url,serviceKey,fetcher=fetch}){
    if(input.action==='context')return respond({user:{id:user.id,email:user.email},admin,libraries,memberships});
    const libraryId=input.libraryId;if(!libraries.some(l=>l.id===libraryId))return respond({error:'Library unavailable'},403);
    const context={admin,memberships:memberships.filter(m=>m.library_id===libraryId)};
+   if(input.action==='usage'){
+    const {totalSeconds,viewingSeconds}=input;if(![totalSeconds,viewingSeconds].every(value=>Number.isInteger(value)&&value>=0&&value<=3600)||viewingSeconds>totalSeconds)return respond({error:'Invalid usage'},400);
+    await db('rpc/trt_add_usage',{p_user:user.id,p_library:libraryId,p_total:totalSeconds,p_viewing:viewingSeconds});return respond({saved:true});
+   }
    if(input.action==='members'){
     if(!admin)return respond({error:'Admin required'},403);
     const users=[];for(let page=1;;page++){const response=await fetcher(url+`/auth/v1/admin/users?page=${page}&per_page=100`,{headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey}});if(!response.ok)throw new Error('Unable to load users');const result=await response.json();users.push(...result.users.map(u=>({id:u.id,email:u.email})));if(result.users.length<100)break;}
-    return respond({users,admins:(await db('trt_admins')).map(row=>row.user_id),memberships:await db('trt_memberships?library_id=eq.'+encodeURIComponent(libraryId)),pendingMemberships:await db('trt_email_memberships?library_id=eq.'+encodeURIComponent(libraryId))});
+    return respond({users,admins:(await db('trt_admins')).map(row=>row.user_id),memberships:await db('trt_memberships?library_id=eq.'+encodeURIComponent(libraryId)),pendingMemberships:await db('trt_email_memberships?library_id=eq.'+encodeURIComponent(libraryId)),usage:await db('trt_usage?library_id=eq.'+encodeURIComponent(libraryId))});
    }
    if(input.action==='membership'){
     if(!admin)return respond({error:'Admin required'},403);
