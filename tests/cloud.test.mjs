@@ -47,14 +47,15 @@ test('database policies, API scopes, atomic saves and stale clients',async t=>{
   await t.test('stats cannot change rosters and failed transactions leave every record unchanged',async()=>{await assert.rejects(save('stats',[{kind:'game',id:'g',payload:{...game,opponent:'Would change'},revision:1},{kind:'team',id:'a',payload:{...teamA,name:'Forbidden'},revision:1}]),/Permission denied/);assert.equal((await pg.query("select payload->>'opponent' as opponent,revision from trt_entities where kind='game'")).rows[0].opponent,'Team B');});
   await t.test('stale updates and resurrection of deleted games are rejected',async()=>{await save('stats',[{kind:'game',id:'g',payload:{...game,opponent:'Updated'},revision:1}]);await assert.rejects(save('stats',[{kind:'game',id:'g',payload:game,revision:1}]),/Another user changed/);await save('admin',[{kind:'game',id:'g',deleted:true,revision:2}]);await assert.rejects(save('stats',[{kind:'game',id:'g',payload:game,revision:0}]),/Another user changed/);await save('admin',[{kind:'game',id:'g',payload:game,revision:3}]);});
   const fetcher=async(url,options={})=>{
-   const u=new URL(url),body=options.body?JSON.parse(options.body):null,ok=(value,status=200)=>new Response(JSON.stringify(value),{status});
+  const requestLog=[];
+   const u=new URL(url),body=options.body?JSON.parse(options.body):null;requestLog.push(u.pathname+u.search);const ok=(value,status=200)=>new Response(JSON.stringify(value),{status});
    if(u.pathname==='/auth/v1/user'){const role=options.headers.Authorization.replace('Bearer ','');if(!ids[role])return ok({error:'Unauthorized'},401);return ok((await pg.query('select * from auth.users where id=$1',[ids[role]])).rows[0]);}
    if(u.pathname==='/auth/v1/admin/users')return ok({users:Object.entries(ids).map(([role,id])=>({id,email:role+'@example.com'}))});
    try{
     const route=u.pathname.replace('/rest/v1/','');
     if(route.startsWith('rpc/')){const functionName=route.slice(4),args=Object.values(body),sql=`select ${functionName}(${args.map((_,i)=>'$'+(i+1)).join(',')}) as value`;const value=(await pg.query(sql,args.map(value=>Array.isArray(value)?JSON.stringify(value):value))).rows[0].value;return value===null||value===""?new Response(null,{status:204}):ok(value);}
-    assert.ok(['trt_admins','trt_libraries','trt_memberships','trt_email_memberships','trt_usage'].includes(route));const clauses=[],values=[];
-    for(const [key,value] of u.searchParams){if(key==='order')continue;assert.match(key,/^[a-z_]+$/);if(value.startsWith('eq.')){values.push(value.slice(3));clauses.push(`${key}=$${values.length}`);}else if(value.startsWith('in.')){const list=value.slice(4,-1).split(',');clauses.push(`${key} in (${list.map(v=>{values.push(v);return '$'+values.length;}).join(',')})`);}}
+    assert.ok(['trt_admins','trt_libraries','trt_memberships','trt_email_memberships','trt_usage','trt_entities'].includes(route));const clauses=[],values=[];
+    for(const [key,value] of u.searchParams){if(key==='order')continue;assert.match(key,/^[a-z_]+$/);if(value.startsWith('eq.')){values.push(value.slice(3));clauses.push(`${key}=$${values.length}`);}else if(value.startsWith('in.')){const inner=value.slice(4,-1),list=inner.startsWith('"')?[...inner.matchAll(/"((?:\\.|[^"\\])*)"/g)].map(match=>match[1].replace(/\\(.)/g,'$1')):inner.split(',');clauses.push(`${key} in (${list.map(v=>{values.push(v);return '$'+values.length;}).join(',')})`);}}
     return ok((await pg.query('select * from '+route+(clauses.length?' where '+clauses.join(' and '):''),values)).rows);
    }catch(error){return ok({message:error.message,code:error.code},400);}
   };
@@ -143,6 +144,36 @@ test('database policies, API scopes, atomic saves and stale clients',async t=>{
   await t.test('all mutation paths enforce current identity and role',async()=>{assert.equal((await call('player',{action:'save',userId:ids.admin,changes:[{kind:'game',id:'g',payload:game,revision:4}]})).status,403);assert.equal((await call('stats',{action:'membership',userId:ids.stats,role:'leadership',teamId:null})).status,403);assert.equal((await call('unverified',{action:'context'})).status,403);assert.equal((await call('unknown',{action:'context'})).status,401);await membership('player','a',null);assert.equal((await call('player',{action:'player',teamId:'a',playerId:'bo'})).status,403);});
   await t.test('API reports conflicts without overwriting another save',async()=>{const result=await call('stats',{action:'save',changes:[{kind:'game',id:'g',payload:game,revision:1}]});assert.equal(result.status,409);});
  }finally{await pg.close();}
+  const second={...structuredClone(game),id:'g2',events:structuredClone(game.events).map(e=>({...e,id:e.id+'-2'}))};
+  const adminRequest=async(action,values={})=>{const result=await call('admin',{action,...values});if(result.status!==200)throw Object.assign(new Error(result.value.error),{status:result.status});return result.value;};
+  const openStore=async()=>{const store=new CloudStore({enabled:true}),loaded=await adminRequest('library');store.libraryId=libraryId;store.request=adminRequest;store.versions=loaded.versions;store.baseline=structuredClone(loaded.data);store.revision=loaded.revision;return {store,data:structuredClone(loaded.data)};};
+  await t.test('a save reads only the teams and the changed records, never the whole library',async()=>{
+   assert.equal((await call('admin',{action:'save',changes:[{kind:'game',id:'g2',payload:second,revision:0}]})).status,200);
+   const before=(await adminRequest('library')).versions['game:g2'];requestLog.length=0;
+   assert.equal((await call('admin',{action:'save',changes:[{kind:'game',id:'g2',payload:{...second,opponent:'Narrow'},revision:before}]})).status,200);
+   assert.ok(!requestLog.some(path=>path.includes('trt_snapshot')),'save must not load the full snapshot');
+   const entityReads=requestLog.filter(path=>path.includes('trt_entities'));assert.ok(entityReads.some(path=>path.includes('kind=eq.team')));assert.ok(entityReads.some(path=>path.includes('kind=eq.game')&&path.includes('g2')&&!path.includes('%22g%22')),'only the changed game is read');
+   assert.equal((await call('admin',{action:'save',changes:[{kind:'game',id:'g2',payload:{...second,teamId:'missing'},revision:before+1}]})).status,400);
+   assert.equal((await call('admin',{action:'save',changes:[{kind:'game',id:'g2',payload:{...second,opponent:'Stale'},revision:before}]})).status,409);
+  });
+  await t.test('a save whose response was lost is recognised as committed, and later saves still work',async()=>{
+   const {store,data}=await openStore();data.games.find(g=>g.id==='g2').opponent='Lost response';
+   const real=store.request;let lose=true;store.request=async(action,values)=>{const result=await real(action,values);if(action==='save'&&lose){lose=false;throw Object.assign(new Error('The operation timed out'),{name:'TimeoutError'});}return result;};
+   await store.save(data);assert.equal(store.failed,false);assert.equal(store.saving,0);assert.equal(store.versions['game:g2'],(await adminRequest('library')).versions['game:g2']);
+   data.games.find(g=>g.id==='g2').opponent='After the lost response';await store.save(data);assert.equal(store.failed,false);
+   assert.equal((await adminRequest('library')).data.games.find(g=>g.id==='g2').opponent,'After the lost response');
+  });
+  await t.test('a timeout before the server commits stays failed, and retrying then succeeds',async()=>{
+   const {store,data}=await openStore();data.games.find(g=>g.id==='g2').opponent='Never reached';
+   const real=store.request;let drop=true;store.request=async(action,values)=>{if(action==='save'&&drop){drop=false;throw Object.assign(new Error('The operation timed out'),{name:'TimeoutError'});}return real(action,values);};
+   await assert.rejects(store.save(data),/timed out/);assert.equal(store.failed,true);
+   await store.retry(data);assert.equal(store.failed,false);assert.equal((await adminRequest('library')).data.games.find(g=>g.id==='g2').opponent,'Never reached');
+  });
+  await t.test('a real conflict with another user is not mistaken for a lost response',async()=>{
+   const {store,data}=await openStore(),other=await openStore();other.data.games.find(g=>g.id==='g2').opponent='Other user';await other.store.save(other.data);
+   data.games.find(g=>g.id==='g2').opponent='Mine';await assert.rejects(store.save(data),/Another user changed/);assert.equal(store.failed,true);
+   assert.equal((await adminRequest('library')).data.games.find(g=>g.id==='g2').opponent,'Other user');
+  });
 });
 
 test('queued cloud saves stop after a conflict and preserve the acknowledged baseline',async()=>{const store=new CloudStore({enabled:true});store.baseline=fixture();store.request=async()=>{const error=new Error('conflict');error.status=409;throw error;};const a=fixture();a.games[0].opponent='First';const b=fixture();b.games[0].opponent='Second';await Promise.all([assert.rejects(store.save(a),/conflict/),assert.rejects(store.save(b),/Unsaved changes/)]);assert.equal(store.baseline.games[0].opponent,'Team B');assert.equal(store.failed,true);assert.equal(store.saving,0);});

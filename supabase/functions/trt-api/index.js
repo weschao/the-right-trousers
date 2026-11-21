@@ -6,7 +6,7 @@ export function createApi({url,serviceKey,fetcher=fetch}){
  const cors={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'authorization,apikey,content-type','Access-Control-Allow-Methods':'POST,OPTIONS','Cache-Control':'no-store','Content-Type':'application/json'};
  const respond=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:cors});
  // void RPCs answer 204 with an empty body
- async function db(path,body){const response=await fetcher(url+'/rest/v1/'+path,{method:body===undefined?'GET':'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});const text=await response.text(),value=text?JSON.parse(text):null;if(!response.ok){const error=new Error(value.message||'Database request failed');error.status=value.code==='40001'?409:value.code==='42501'?403:value.code==='22023'?400:500;throw error;}return value;}
+ async function db(path,body){const response=await fetcher(url+'/rest/v1/'+path,{method:body===undefined?'GET':'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});const text=await response.text(),value=text?JSON.parse(text):null;if(!response.ok){const error=new Error(value.message||'Database request failed');error.status=value.code==='40001'?409:value.code==='42501'?403:value.code==='22023'?400:500;if(error.status===500)error.message+=' ('+path.split('?')[0]+')';throw error;}return value;}
  function unpack(rows){const library=emptyData();for(const row of rows){if(row.deleted)continue;if(row.kind==='settings')library.settings=row.payload;else library[{team:'teams',game:'games',source:'sources'}[row.kind]].push(row.payload);}return library;}
  return async request=>{
   if(request.method==='OPTIONS')return new Response(null,{status:204,headers:cors});
@@ -44,7 +44,15 @@ export function createApi({url,serviceKey,fetcher=fetch}){
     }
     return respond({saved:true});
    }
-   const snapshot=await db('rpc/trt_snapshot',{p_library:libraryId}),rows=snapshot.entities,library=unpack(rows);
+   let snapshot,rows,library;
+   if(input.action==='save'){
+    // a save only needs every team (roster and reference checks) plus the stored copy of each changed record,
+    // so it never loads or revalidates the other games
+    if(!Array.isArray(input.changes)||input.changes.length>2000)return respond({error:'Invalid changes'},400);
+    const quote=value=>'"'+value.replace(/[\\"]/g,'\\$&')+'"',scope='trt_entities?library_id=eq.'+encodeURIComponent(libraryId),queries=[db(scope+'&kind=eq.team')];
+    for(const kind of ['game','source']){const changedIds=[...new Set(input.changes.filter(c=>c?.kind===kind&&typeof c.id==='string').map(c=>c.id))];for(let start=0;start<changedIds.length;start+=100)queries.push(db(scope+'&kind=eq.'+kind+'&id=in.('+encodeURIComponent(changedIds.slice(start,start+100).map(quote).join(','))+')'));}
+    rows=(await Promise.all(queries)).flat();library=unpack(rows);
+   }else{snapshot=await db('rpc/trt_snapshot',{p_library:libraryId});rows=snapshot.entities;library=unpack(rows);}
    if(input.action==='library'){
     const filtered=editorLibrary(context,library),keys=new Set([...filtered.teams.map(t=>'team:'+t.id),...filtered.games.map(g=>'game:'+g.id),...filtered.sources.map(s=>'source:'+s.id),'settings:settings']);
     return respond({data:filtered,revision:snapshot.revision,versions:Object.fromEntries(rows.filter(r=>keys.has(r.kind+':'+r.id)).map(r=>[r.kind+':'+r.id,r.revision])),context,teams:visibleTeams(context,library.teams).map(t=>({id:t.id,name:t.name,players:t.players.map(({id,name,number,gender})=>({id,name,number,gender}))}))});
